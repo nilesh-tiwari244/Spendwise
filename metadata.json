@@ -1,0 +1,7 @@
+{
+  "name": "SpendWise",
+  "description": "A clean, distraction-free personal expense tracking app with real-time balance calculation and receipt storage.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
