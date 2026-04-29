@@ -281,7 +281,7 @@ export default function App() {
       } catch (e) {
         console.warn('Failed to save cache', e);
       }
-
+/*
       // Migration logic (non-blocking for the main UI reveal)
       if (bucketsRes.data && orphanedRes.count && orphanedRes.count > 0 && !isMigrating.current) {
       const rncReserve = bucketsRes.data.find(b => b.name === 'RNC Reserve');
@@ -320,6 +320,7 @@ export default function App() {
         }
       }
     }
+      */
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
