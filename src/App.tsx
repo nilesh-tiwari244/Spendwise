@@ -945,7 +945,7 @@ export default function App() {
                 onSuccess={() => {
                   setEditingTransaction(null);
                   window.history.back();
-                  fetchData(false);
+                //  fetchData(false);
                 }}
                 onOptimisticAdd={optimisticAddTransaction}
                 onOptimisticEdit={optimisticEditTransaction}
