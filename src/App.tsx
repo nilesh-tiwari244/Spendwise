@@ -89,6 +89,8 @@ export default function App() {
   const [isRecovery, setIsRecovery] = useState(false);
   const isMigrating = React.useRef(false);
   const prevPendingTransfersCount = useRef(0);
+  const fetchAbortController = useRef<AbortController | null>(null);
+  const realtimeDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { prefs, updatePreference } = useBucketPreferences(session?.user?.id);
 
@@ -144,14 +146,23 @@ export default function App() {
     if (session && !isRecovery) {
       fetchData(true);
 
-      
-      // Real-time subscription
+      // Debounced handler: collapses bursts of realtime events into a single fetch
+      const debouncedFetch = () => {
+        if (realtimeDebounceTimer.current) {
+          clearTimeout(realtimeDebounceTimer.current);
+        }
+        realtimeDebounceTimer.current = setTimeout(() => {
+          fetchData(false);
+        }, 400);
+      };
+
+      // Real-time subscriptions (debounced to prevent thundering herd)
       const transactionsChannel = supabase
         .channel('transactions-changes')
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'transactions' },
-          () => fetchData(false)
+          debouncedFetch
         )
         .subscribe();
 
@@ -160,7 +171,7 @@ export default function App() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'categories' },
-          () => fetchData(false)
+          debouncedFetch
         )
         .subscribe();
 
@@ -169,11 +180,20 @@ export default function App() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'bucket_shares' },
-          () => fetchData(false)
+          debouncedFetch
         )
         .subscribe();
 
       return () => {
+        // Clean up debounce timer and abort any in-flight fetch
+        if (realtimeDebounceTimer.current) {
+          clearTimeout(realtimeDebounceTimer.current);
+          realtimeDebounceTimer.current = null;
+        }
+        if (fetchAbortController.current) {
+          fetchAbortController.current.abort();
+          fetchAbortController.current = null;
+        }
         supabase.removeChannel(transactionsChannel);
         supabase.removeChannel(categoriesChannel);
         supabase.removeChannel(sharesChannel);
@@ -185,6 +205,13 @@ export default function App() {
 
   const fetchData = useCallback(async (isInitial = false, bucketOverride?: Bucket | null) => {
     if (!session) return;
+
+    // Abort any previous in-flight fetch to prevent stale data overwriting fresh data
+    if (fetchAbortController.current) {
+      fetchAbortController.current.abort();
+    }
+    const controller = new AbortController();
+    fetchAbortController.current = controller;
     
     // Only block if we have nothing in cache
     if (isInitial && buckets.length === 0) setIsAppLoading(true);
@@ -195,13 +222,16 @@ export default function App() {
       const currentSelectedBucket = bucketOverride !== undefined ? bucketOverride : selectedBucket;
 
       const [bucketsRes, sharedWithRes, sharedByRes, catRes, orphanedRes, profilesRes] = await Promise.all([
-        supabase.from('buckets').select('*').order('name', { ascending: true }),
-        supabase.from('bucket_shares').select('*, bucket:buckets(*)').eq('shared_with_email', userEmail),
-        supabase.from('bucket_shares').select('*').eq('shared_by_email', userEmail),
-        supabase.from('categories').select('*').order('name', { ascending: true }),
-        supabase.from('transactions').select('id', { count: 'exact', head: true }).is('bucket_id', null),
-        supabase.from('profiles').select('id, email, display_name')
+        supabase.from('buckets').select('*').order('name', { ascending: true }).abortSignal(controller.signal),
+        supabase.from('bucket_shares').select('*, bucket:buckets(*)').eq('shared_with_email', userEmail).abortSignal(controller.signal),
+        supabase.from('bucket_shares').select('*').eq('shared_by_email', userEmail).abortSignal(controller.signal),
+        supabase.from('categories').select('*').order('name', { ascending: true }).abortSignal(controller.signal),
+        supabase.from('transactions').select('id', { count: 'exact', head: true }).is('bucket_id', null).abortSignal(controller.signal),
+        supabase.from('profiles').select('id, email, display_name').abortSignal(controller.signal)
       ]);
+
+      // If this fetch was aborted while awaiting, bail out
+      if (controller.signal.aborted) return;
 
       if (profilesRes.data) {
         const profileMap: Record<string, string> = {};
@@ -231,9 +261,12 @@ export default function App() {
       const activeBucketIds = activeBuckets.map(b => b.id);
 
       const [bucketTotalsRes, grandTotalRes] = await Promise.all([
-        supabase.rpc('get_bucket_totals'),
-        supabase.rpc('get_grand_total')
+        supabase.rpc('get_bucket_totals').abortSignal(controller.signal),
+        supabase.rpc('get_grand_total').abortSignal(controller.signal)
       ]);
+
+      // Check abort again after second batch
+      if (controller.signal.aborted) return;
 
       let transactionsData: Transaction[] = [];
       if (activeBucketIds.length > 0) {
@@ -245,10 +278,14 @@ export default function App() {
               .order('date', { ascending: false })
               .order('created_at', { ascending: false })
               .limit(20)
+              .abortSignal(controller.signal)
           );
           const results = await Promise.all(queries);
           transactionsData = results.flatMap(r => r.data || []);
       }
+
+      // Final abort check before committing state
+      if (controller.signal.aborted) return;
 
       const totalsMap: Record<string, number> = {};
       if (bucketTotalsRes.data) {
@@ -321,11 +358,15 @@ export default function App() {
       }
     }
       */
-    } catch (err) {
+    } catch (err: any) {
+      // Silently ignore aborted fetches — they are intentional
+      if (err?.name === 'AbortError' || controller.signal.aborted) return;
       console.error("Error fetching data:", err);
     } finally {
-      setIsAppLoading(false);
-      setIsDataLoading(false);
+      if (!controller.signal.aborted) {
+        setIsAppLoading(false);
+        setIsDataLoading(false);
+      }
     }
   }, [session, selectedBucket]);
 
@@ -945,7 +986,9 @@ export default function App() {
                 onSuccess={() => {
                   setEditingTransaction(null);
                   window.history.back();
-                fetchData(false);
+                  // No direct fetchData() call needed here:
+                  // - Optimistic update already shows data instantly
+                  // - Realtime subscription will trigger a debounced fetch to reconcile
                 }}
                 onOptimisticAdd={optimisticAddTransaction}
                 onOptimisticEdit={optimisticEditTransaction}
