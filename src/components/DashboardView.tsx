@@ -269,6 +269,14 @@ export function DashboardView({
           >
             {localTransactions.map((t) => {
               const dateParts = getDateParts(t.date);
+              // Format the created_at timestamp
+              let formattedAddedDate = '';
+              if (t.created_at) {
+                const d = new Date(t.created_at);
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                formattedAddedDate = `${timeStr} ${dateStr}`;
+              }
               return (
                 <motion.div
                   variants={{
@@ -319,6 +327,12 @@ export function DashboardView({
                               : "text-zinc-500"
                           )}>
                             ADDED BY:- {formatUserDisplay(t.last_edited_by || '', ownerEmail, activeShareEmails, profiles)}
+                          </div>
+                        )}
+                        {/* Added On (New Addition) */}
+                        {formattedAddedDate && (
+                          <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
+                            ADDED ON:- {formattedAddedDate}
                           </div>
                         )}
                       </div>

@@ -985,9 +985,14 @@ export default function App() {
                   window.history.back();
                 }}
                 onEdit={() => {
+                  // 1. Set the transaction to be edited
                   setEditingTransaction(selectedTransaction);
-                  setSelectedTransaction(null);
-                  handleNavigate('add-transaction');
+                  
+                  // 2. Replace 'view-transaction' with 'add-transaction' in the browser history
+                  // This means when the edit screen calls history.back(), it will skip 
+                  // the detail view and return directly to your list view!
+                  window.history.replaceState({ view: 'add-transaction', bucketId: selectedBucket?.id }, '', '#add-transaction');
+                  setCurrentView('add-transaction');
                 }}
               />
             </motion.div>
@@ -1044,6 +1049,9 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
             >
               <MemoizedDeletedTransactionsView 
+                buckets={enhancedBuckets}
+                shares={shares}
+                profiles={profiles}
                 onBack={() => {
                   if (selectedBucket) {
                     window.history.back();
@@ -1052,6 +1060,7 @@ export default function App() {
                   }
                 }}
                 onSuccess={handleRefresh}
+                onViewTransaction={handleViewTransaction}
               />
             </motion.div>
           )}

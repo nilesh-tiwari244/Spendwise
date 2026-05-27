@@ -14,7 +14,14 @@ interface TransactionDetailViewProps {
 
 export function TransactionDetailView({ transaction, shares, profiles, ownerEmail, onBack, onEdit }: TransactionDetailViewProps) {
   const activeShareEmails = shares.filter(s => s.bucket_id === transaction.bucket_id && s.status === 'accepted').map(s => s.shared_with_email);
-
+  // Format the created_at timestamp
+  let formattedAddedDate = '';
+  if (transaction.created_at) {
+    const d = new Date(transaction.created_at);
+    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    formattedAddedDate = `${timeStr} ${dateStr}`;
+  }
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 mb-2">
@@ -89,6 +96,20 @@ export function TransactionDetailView({ transaction, shares, profiles, ownerEmai
                     : "text-zinc-900"
                 )}>
                   {formatUserDisplay(transaction.last_edited_by, ownerEmail, activeShareEmails, profiles)}
+                </span>
+              </div>
+            </div>
+          )}
+          {/* Added On Row (New Addition) */}
+          {formattedAddedDate && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 border-2 border-zinc-900 flex items-center justify-center bg-zinc-50">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="block text-[10px] font-black uppercase text-zinc-400">Added On</span>
+                <span className="font-bold text-sm text-zinc-900">
+                  {formattedAddedDate}
                 </span>
               </div>
             </div>

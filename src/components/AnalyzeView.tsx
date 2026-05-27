@@ -468,6 +468,14 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
                   const activeEmails = bucketShares.map(s => s.shared_with_email);
                   const ownerEmail = bucketShares[0]?.shared_by_email || (bucket?.user_id === user.id ? user.email : '');
 
+                  // Format the created_at timestamp
+                  let formattedAddedDate = '';
+                  if (t.created_at) {
+                    const d = new Date(t.created_at);
+                    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                    const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    formattedAddedDate = `${timeStr} ${dateStr}`;
+                  }
                   return (
                     <motion.div
                       key={t.id}
@@ -508,6 +516,12 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
                             {t.last_edited_by && (
                               <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                                 ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
+                              </div>
+                            )}
+                            {/* Added On (New Addition) */}
+                            {formattedAddedDate && (
+                              <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
+                                ADDED ON:- {formattedAddedDate}
                               </div>
                             )}
                           </div>

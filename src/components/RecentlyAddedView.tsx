@@ -46,6 +46,15 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
               const activeEmails = bucketShares.map(s => s.shared_with_email);
               const ownerEmail = bucketShares[0]?.shared_by_email || '';
 
+              // Format the created_at timestamp
+              let formattedAddedDate = '';
+              if (t.created_at) {
+                const d = new Date(t.created_at);
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                formattedAddedDate = `${timeStr} ${dateStr}`;
+              }
+
               return (
                 <motion.div
                   initial={{ opacity: 0, x: -10 }}
@@ -71,7 +80,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-0.5">
                         {/* Category Box and Bucket */}
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
                           <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                             {bucket?.name || 'No Bucket'}
                           </span>
@@ -82,6 +91,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                             <span className="text-[8px] font-black uppercase bg-red-100 text-red-600 px-1 border border-red-600 flex-shrink-0">Deleted</span>
                           )}
                         </div>
+                        
                         {/* Remarks */}
                         <div className="font-black text-base leading-tight truncate text-zinc-900">
                           {truncateRemarks(t.remarks) || 'No Remarks'}
@@ -91,6 +101,13 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                         {t.last_edited_by && (
                           <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                             ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
+                          </div>
+                        )}
+
+                        {/* Added On (New Addition) */}
+                        {formattedAddedDate && (
+                          <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
+                            ADDED ON:- {formattedAddedDate}
                           </div>
                         )}
                       </div>
