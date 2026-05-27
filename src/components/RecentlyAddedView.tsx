@@ -1,7 +1,7 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { formatCurrency, cn, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
-import { ArrowLeft, Clock, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface RecentlyAddedViewProps {
@@ -14,31 +14,75 @@ interface RecentlyAddedViewProps {
 }
 
 export function RecentlyAddedView({ transactions, buckets, shares, profiles, onBack, onViewTransaction }: RecentlyAddedViewProps) {
-  const [displayCount, setDisplayCount] = useState(100);
+  const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
   const observerTarget = useRef<HTMLDivElement>(null);
 
-  // Sort all transactions by created_at/updated_at, but only render up to 'displayCount'
-  const allSortedTransactions = useMemo(() => {
-    return [...transactions].sort((a, b) => {
-      const timeA = new Date(a.updated_at || a.created_at).getTime();
-      const timeB = new Date(b.updated_at || b.created_at).getTime();
-      return timeB - timeA;
+  // 1. Sync the initial transactions passed from App.tsx
+  useEffect(() => {
+    setLocalTransactions(prev => {
+      const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
+      transactions.forEach(t => map.set(t.id, t));
+      
+      // Sort by absolute newest (either created or updated)
+      return Array.from(map.values()).sort((a, b) => {
+        const timeA = new Date(a.updated_at || a.created_at).getTime();
+        const timeB = new Date(b.updated_at || b.created_at).getTime();
+        return timeB - timeA;
+      });
     });
   }, [transactions]);
 
-  const displayedTransactions = useMemo(() => {
-    return allSortedTransactions.slice(0, displayCount);
-  }, [allSortedTransactions, displayCount]);
+  // 2. Fetch the next 100 rows directly from Supabase
+  const loadMore = async () => {
+    if (isFetchingMore || !hasMore || buckets.length === 0) return;
+    setIsFetchingMore(true);
 
-  const hasMore = displayCount < allSortedTransactions.length;
+    try {
+      const activeBucketIds = buckets.map(b => b.id);
 
-  // Infinite scroll observer
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*, category:categories(*)')
+        .in('bucket_id', activeBucketIds)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .range(localTransactions.length, localTransactions.length + 99);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setLocalTransactions(prev => {
+          const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
+          data.forEach(t => map.set(t.id, t));
+          
+          return Array.from(map.values()).sort((a, b) => {
+            const timeA = new Date(a.updated_at || a.created_at).getTime();
+            const timeB = new Date(b.updated_at || b.created_at).getTime();
+            return timeB - timeA;
+          });
+        });
+        
+        // If we got less than 100, we hit the end of the database!
+        if (data.length < 100) setHasMore(false);
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error('Error fetching more recent transactions:', err);
+      setHasMore(false);
+    } finally {
+      setIsFetchingMore(false);
+    }
+  };
+
+  // 3. Infinite Scroll Observer (Triggers when you hit the bottom)
   useEffect(() => {
     const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore) {
-          // Load 100 more transactions when reaching the bottom
-          setDisplayCount((prev) => prev + 100);
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !isFetchingMore) {
+          loadMore();
         }
       },
       { threshold: 0.1 }
@@ -49,7 +93,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
     }
 
     return () => observer.disconnect();
-  }, [hasMore]);
+  }, [hasMore, isFetchingMore, localTransactions.length, buckets]);
 
   return (
     <div className="space-y-6 pb-32">
@@ -60,19 +104,19 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
         <div className="flex flex-col">
           <h2 className="text-2xl font-black uppercase tracking-tighter leading-none">Recently Added</h2>
           <span className="text-[10px] font-black uppercase text-zinc-400 mt-1">
-            Showing {displayedTransactions.length} of {allSortedTransactions.length} transactions
+            Showing {localTransactions.length} recent entries
           </span>
         </div>
       </div>
 
       <div className="space-y-3">
-        {displayedTransactions.length === 0 ? (
+        {localTransactions.length === 0 ? (
           <div className="text-center py-12 brutal-card bg-zinc-100 border-dashed">
             <p className="text-xs font-bold uppercase text-zinc-400">No transactions found</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {displayedTransactions.map((t) => {
+            {localTransactions.map((t) => {
               const bucket = buckets.find(b => b.id === t.bucket_id);
               const dateParts = getDateParts(t.date);
               const bucketShares = shares.filter(s => s.bucket_id === t.bucket_id && s.status === 'accepted');
@@ -111,7 +155,6 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                   onClick={() => onViewTransaction(t)}
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
-                    {/* Date Block */}
                     <div className={cn(
                       "w-14 h-[72px] border-2 border-zinc-900 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                       t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
@@ -123,7 +166,6 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
 
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-0.5">
-                        {/* Category Box and Bucket */}
                         <div className="flex items-center gap-2 flex-wrap mb-0.5">
                           <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                             {bucket?.name || 'No Bucket'}
@@ -136,26 +178,22 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                           )}
                         </div>
                         
-                        {/* Remarks */}
                         <div className="font-black text-base leading-tight truncate text-zinc-900">
                           {truncateRemarks(t.remarks) || 'No Remarks'}
                         </div>
 
-                        {/* Added By */}
                         {t.last_edited_by && (
                           <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                             ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
                           </div>
                         )}
 
-                        {/* Added On */}
                         {formattedAddedDate && (
                           <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                             ADDED ON:- {formattedAddedDate}
                           </div>
                         )}
 
-                        {/* Updated On */}
                         {formattedUpdatedDate && (
                           <div className="text-[10px] font-black uppercase text-blue-500 break-all">
                             UPDATED ON:- {formattedUpdatedDate}
@@ -178,11 +216,15 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
             {/* Infinite Scroll Trigger */}
             {hasMore && (
               <div ref={observerTarget} className="py-8 flex justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                {isFetchingMore ? (
+                  <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                ) : (
+                  <div className="h-6" /> // Invisible trigger box
+                )}
               </div>
             )}
             
-            {!hasMore && displayedTransactions.length > 0 && (
+            {!hasMore && localTransactions.length > 0 && (
               <div className="text-center py-8 text-[10px] font-black uppercase text-zinc-400">
                 End of history
               </div>

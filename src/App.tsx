@@ -68,6 +68,14 @@ export default function App() {
   const [isAddingBucket, setIsAddingBucket] = useState(false);
   const [newBucketName, setNewBucketName] = useState('');
 
+  // Protects the Dashboard from wiping data when the phone wakes up from sleep
+  const loadedTxCount = useRef(50);
+  useEffect(() => {
+    if (transactions.length > loadedTxCount.current) {
+      loadedTxCount.current = transactions.length;
+    }
+  }, [transactions.length]);
+
   // SWR: Try loading from cache immediately
   useEffect(() => {
     try {
@@ -77,7 +85,7 @@ export default function App() {
       
       if (cachedBuckets) {
         setBuckets(JSON.parse(cachedBuckets));
-        setIsAppLoading(false); // Remove initial block if we have cache
+        setIsAppLoading(false); 
       }
       if (cachedTotals) setBucketTotals(JSON.parse(cachedTotals));
       if (cachedGrandTotal) setGrandTotal(JSON.parse(cachedGrandTotal));
@@ -85,6 +93,7 @@ export default function App() {
       console.warn('Failed to load cache:', e);
     }
   }, []);
+  
   const [isBucketLoading, setIsBucketLoading] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
   const isMigrating = React.useRef(false);
@@ -143,7 +152,6 @@ export default function App() {
   useEffect(() => {
     if (session && !isRecovery) {
       fetchData(true);
-
       
       // Real-time subscription
       const transactionsChannel = supabase
@@ -186,7 +194,6 @@ export default function App() {
   const fetchData = useCallback(async (isInitial = false, bucketOverride?: Bucket | null) => {
     if (!session) return;
     
-    // Only block if we have nothing in cache
     if (isInitial && buckets.length === 0) setIsAppLoading(true);
     if (isInitial) setIsDataLoading(true);
 
@@ -227,7 +234,6 @@ export default function App() {
       });
 
       const activeBuckets = allBuckets.filter(b => !b.archived_at);
-
       const activeBucketIds = activeBuckets.map(b => b.id);
 
       const [bucketTotalsRes, grandTotalRes] = await Promise.all([
@@ -244,7 +250,7 @@ export default function App() {
               .is('deleted_at', null)
               .order('date', { ascending: false })
               .order('created_at', { ascending: false })
-              .limit(20)
+              .limit(loadedTxCount.current + 10) // Keeps dashboard stable on wake-up
           );
           const results = await Promise.all(queries);
           transactionsData = results.flatMap(r => r.data || []);
@@ -257,7 +263,6 @@ export default function App() {
         });
       }
 
-      // Batch all state updates at once to prevent partial renders
       setShares([...acceptedShares, ...outgoingShares]);
       setPendingShares(pending);
       setBuckets(allBuckets);
@@ -266,14 +271,12 @@ export default function App() {
       setBucketTotals(totalsMap);
       setGrandTotal(Number(grandTotalRes.data || 0));
       
-      // Sort the combined list by date
       setTransactions(transactionsData.sort((a, b) => {
         const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
         if (dateDiff !== 0) return dateDiff;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }));
 
-      // Cache crucial UI data for instantaneous next load
       try {
         localStorage.setItem('sw_buckets', JSON.stringify(allBuckets));
         localStorage.setItem('sw_bucketTotals', JSON.stringify(totalsMap));
@@ -281,46 +284,6 @@ export default function App() {
       } catch (e) {
         console.warn('Failed to save cache', e);
       }
-/*
-      // Migration logic (non-blocking for the main UI reveal)
-      if (bucketsRes.data && orphanedRes.count && orphanedRes.count > 0 && !isMigrating.current) {
-      const rncReserve = bucketsRes.data.find(b => b.name === 'RNC Reserve');
-      
-      if (rncReserve) {
-        isMigrating.current = true;
-        console.log(`Migrating orphaned transactions to RNC Reserve...`);
-        
-        try {
-          const { data: orphanedTrans } = await supabase
-            .from('transactions')
-            .select('id')
-            .is('bucket_id', null);
-
-          if (orphanedTrans && orphanedTrans.length > 0) {
-            const orphanedIds = orphanedTrans.map(t => t.id);
-            await supabase
-              .from('transactions')
-              .update({ bucket_id: rncReserve.id })
-              .in('id', orphanedIds);
-
-            // Update categories if any are orphaned
-            const orphanedCats = catRes.data?.filter(c => !c.bucket_id) || [];
-            if (orphanedCats.length > 0) {
-              await supabase
-                .from('categories')
-                .update({ bucket_id: rncReserve.id })
-                .in('id', orphanedCats.map(c => c.id));
-            }
-            
-            // Refresh data after migration
-            await fetchData();
-          }
-        } finally {
-          isMigrating.current = false;
-        }
-      }
-    }
-      */
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -451,10 +414,8 @@ export default function App() {
       is_optimistic: true
     };
 
-    // Update transactions list
     setTransactions(prev => [optimisticTx, ...prev]);
 
-    // Update totals
     const amountChange = optimisticTx.type === 'Credit' ? optimisticTx.amount : -optimisticTx.amount;
     setBucketTotals(prev => ({
       ...prev,
@@ -468,7 +429,6 @@ export default function App() {
     
     setTransactions(prev => prev.map(t => {
       if (t.id === updatedTx.id) {
-        // Calculate total difference
         const oldAmountDir = t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
         const newAmountDir = updatedTx.type === 'Credit' ? Number(updatedTx.amount || t.amount) : -Number(updatedTx.amount || t.amount);
         const difference = newAmountDir - oldAmountDir;
@@ -535,7 +495,6 @@ export default function App() {
   };
 
   const handleExport = useCallback(async () => {
-    // If a bucket is selected, only the owner can export
     if (selectedBucket && selectedBucket.user_id !== session.user.id) {
       console.error('Only the owner of this bucket can export its data.');
       return;
@@ -545,7 +504,6 @@ export default function App() {
 
     try {
       if (selectedBucket) {
-        // Fetch ALL transactions for this bucket
         const { data, error } = await supabase
           .from('transactions')
           .select('*, category:categories(*)')
@@ -555,7 +513,6 @@ export default function App() {
         if (error) throw error;
         allTransactions = data || [];
       } else {
-        // Fetch ALL transactions for all owned buckets
         const ownedBucketIds = buckets
           .filter(b => b.user_id === session.user.id && !b.archived_at)
           .map(b => b.id);
@@ -626,16 +583,16 @@ export default function App() {
     if (view === 'buckets') setSelectedBucket(null);
     setCurrentView(view);
     
-    if (view === 'summary' || view === 'analyze') {
+    // BACKEND PAGINATION: ONLY 'analyze' forces a full global download now. 
+    // RecentlyAdded fetches its own data independently!
+    if (view === 'analyze') {
       if (selectedBucket) {
         syncFullHistory(selectedBucket.id);
-      } else if (view === 'analyze') {
+      } else {
         syncAllHistory();
       }
     }
 
-    // Push state to browser history when navigating.
-    // If navigating back to root ('buckets'), clear history state effectively by pushing null state
     if (view !== 'buckets') {
       window.history.pushState({ view, bucketId: selectedBucket?.id }, '', `#${view}`);
     } else {
@@ -663,7 +620,6 @@ export default function App() {
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      // If there's no state, or we hit the root, we default to buckets
       if (!event.state || !event.state.view || event.state.view === 'buckets') {
         setSelectedBucket(null);
         setCurrentView('buckets');
@@ -671,8 +627,6 @@ export default function App() {
         const view = event.state.view as View;
         const bucketId = event.state.bucketId;
         
-        // If we are navigating to a bucket-specific view but don't have a bucket ID, 
-        // fallback to the buckets home view to avoid a blank page.
         const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activity', 'categories'];
         if (bucketSpecificViews.includes(view) && !bucketId) {
           setSelectedBucket(null);
@@ -681,14 +635,12 @@ export default function App() {
         }
 
         setCurrentView(view);
-        // Restore bucket if it was in the state
         if (bucketId) {
           setBuckets(currentBuckets => {
             const bucket = currentBuckets.find(b => b.id === bucketId);
             if (bucket) {
               setSelectedBucket(bucket);
             } else if (bucketSpecificViews.includes(view)) {
-              // If the bucket wasn't found but we are in a bucket view, fallback
               setCurrentView('buckets');
               setSelectedBucket(null);
             }
@@ -698,7 +650,6 @@ export default function App() {
       }
     };
 
-    // Ensure our initial state is recorded so popping back to the very beginning works without closing the app.
     if (!window.location.hash) {
       window.history.replaceState({ view: 'buckets', bucketId: null }, '', '#buckets');
     }
@@ -908,6 +859,7 @@ export default function App() {
               />
             </motion.div>
           )}
+          
           {currentView === 'summary' && enhancedSelectedBucket && (
             <motion.div
               key="summary"
@@ -916,9 +868,8 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95 }}
             >
               <MemoizedSummaryView 
-                transactions={activeTransactions} 
+                bucket={enhancedSelectedBucket}
                 categories={bucketCategories}
-                isSyncing={isSyncing}
                 onBack={() => window.history.back()}
                 onCategoryClick={(categoryId, startDate, endDate) => {
                   setAnalyzeParams({ categoryId, startDate, endDate, autoRun: true });
@@ -927,6 +878,7 @@ export default function App() {
               />
             </motion.div>
           )}
+
           {currentView === 'add-transaction' && (
             <motion.div
               key="add-transaction"
@@ -985,12 +937,7 @@ export default function App() {
                   window.history.back();
                 }}
                 onEdit={() => {
-                  // 1. Set the transaction to be edited
                   setEditingTransaction(selectedTransaction);
-                  
-                  // 2. Replace 'view-transaction' with 'add-transaction' in the browser history
-                  // This means when the edit screen calls history.back(), it will skip 
-                  // the detail view and return directly to your list view!
                   window.history.replaceState({ view: 'add-transaction', bucketId: selectedBucket?.id }, '', '#add-transaction');
                   setCurrentView('add-transaction');
                 }}
@@ -1022,6 +969,7 @@ export default function App() {
               />
             </motion.div>
           )}
+          {/* UPDATED MEMOIZED RECENTLY ADDED VIEW (Lazy Loading from Backend) */}
           {currentView === 'recently-added' && (
             <motion.div
               key="recently-added"
