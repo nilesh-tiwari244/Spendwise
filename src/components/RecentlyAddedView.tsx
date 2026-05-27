@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
-import { formatCurrency, formatDate, cn, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
-import { ArrowLeft, Clock, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { formatCurrency, cn, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
+import { ArrowLeft, Clock, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface RecentlyAddedViewProps {
@@ -14,11 +14,42 @@ interface RecentlyAddedViewProps {
 }
 
 export function RecentlyAddedView({ transactions, buckets, shares, profiles, onBack, onViewTransaction }: RecentlyAddedViewProps) {
-  const recentTransactions = useMemo(() => {
-    return [...transactions]
-      .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
-      .slice(0, 100);
+  const [displayCount, setDisplayCount] = useState(100);
+  const observerTarget = useRef<HTMLDivElement>(null);
+
+  // Sort all transactions by created_at/updated_at, but only render up to 'displayCount'
+  const allSortedTransactions = useMemo(() => {
+    return [...transactions].sort((a, b) => {
+      const timeA = new Date(a.updated_at || a.created_at).getTime();
+      const timeB = new Date(b.updated_at || b.created_at).getTime();
+      return timeB - timeA;
+    });
   }, [transactions]);
+
+  const displayedTransactions = useMemo(() => {
+    return allSortedTransactions.slice(0, displayCount);
+  }, [allSortedTransactions, displayCount]);
+
+  const hasMore = displayCount < allSortedTransactions.length;
+
+  // Infinite scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          // Load 100 more transactions when reaching the bottom
+          setDisplayCount((prev) => prev + 100);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => observer.disconnect();
+  }, [hasMore]);
 
   return (
     <div className="space-y-6 pb-32">
@@ -28,18 +59,20 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
         </button>
         <div className="flex flex-col">
           <h2 className="text-2xl font-black uppercase tracking-tighter leading-none">Recently Added</h2>
-          <span className="text-[10px] font-black uppercase text-zinc-400 mt-1">Last 100 transactions by entry time</span>
+          <span className="text-[10px] font-black uppercase text-zinc-400 mt-1">
+            Showing {displayedTransactions.length} of {allSortedTransactions.length} transactions
+          </span>
         </div>
       </div>
 
       <div className="space-y-3">
-        {recentTransactions.length === 0 ? (
+        {displayedTransactions.length === 0 ? (
           <div className="text-center py-12 brutal-card bg-zinc-100 border-dashed">
             <p className="text-xs font-bold uppercase text-zinc-400">No transactions found</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {recentTransactions.map((t) => {
+            {displayedTransactions.map((t) => {
               const bucket = buckets.find(b => b.id === t.bucket_id);
               const dateParts = getDateParts(t.date);
               const bucketShares = shares.filter(s => s.bucket_id === t.bucket_id && s.status === 'accepted');
@@ -53,6 +86,17 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                 const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
                 const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
                 formattedAddedDate = `${timeStr} ${dateStr}`;
+              }
+
+              // Format the updated_at timestamp (6 hour safety check)
+              let formattedUpdatedDate = '';
+              const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
+              
+              if (isUpdated && t.updated_at) {
+                const d = new Date(t.updated_at);
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                formattedUpdatedDate = `${timeStr} ${dateStr}`;
               }
 
               return (
@@ -104,10 +148,17 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                           </div>
                         )}
 
-                        {/* Added On (New Addition) */}
+                        {/* Added On */}
                         {formattedAddedDate && (
                           <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                             ADDED ON:- {formattedAddedDate}
+                          </div>
+                        )}
+
+                        {/* Updated On */}
+                        {formattedUpdatedDate && (
+                          <div className="text-[10px] font-black uppercase text-blue-500 break-all">
+                            UPDATED ON:- {formattedUpdatedDate}
                           </div>
                         )}
                       </div>
@@ -123,6 +174,19 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                 </motion.div>
               );
             })}
+            
+            {/* Infinite Scroll Trigger */}
+            {hasMore && (
+              <div ref={observerTarget} className="py-8 flex justify-center">
+                <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+              </div>
+            )}
+            
+            {!hasMore && displayedTransactions.length > 0 && (
+              <div className="text-center py-8 text-[10px] font-black uppercase text-zinc-400">
+                End of history
+              </div>
+            )}
           </div>
         )}
       </div>

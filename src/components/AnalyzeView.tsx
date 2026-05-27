@@ -476,13 +476,25 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
                     const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
                     formattedAddedDate = `${timeStr} ${dateStr}`;
                   }
+
+                  // Format the updated_at timestamp
+                  let formattedUpdatedDate = '';
+                  const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
+                  
+                  if (isUpdated && t.updated_at) {
+                    const d = new Date(t.updated_at);
+                    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                    const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    formattedUpdatedDate = `${timeStr} ${dateStr}`;
+                  }
+
                   return (
                     <motion.div
                       key={t.id}
                       whileHover={{ x: 4 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => onViewTransaction(t)}
-                      className="brutal-card pl-1 pr-4 py-1 flex items-start justify-between gap-2 cursor-pointer bg-white"
+                      className="brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer bg-white"
                     >
                       <div className="flex items-start gap-2 min-w-0 flex-1">
                         {/* Date Block */}
@@ -518,10 +530,18 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
                                 ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
                               </div>
                             )}
-                            {/* Added On (New Addition) */}
+
+                            {/* Added On */}
                             {formattedAddedDate && (
                               <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                                 ADDED ON:- {formattedAddedDate}
+                              </div>
+                            )}
+
+                            {/* Updated On */}
+                            {formattedUpdatedDate && (
+                              <div className="text-[10px] font-black uppercase text-blue-500 break-all">
+                                UPDATED ON:- {formattedUpdatedDate}
                               </div>
                             )}
                           </div>

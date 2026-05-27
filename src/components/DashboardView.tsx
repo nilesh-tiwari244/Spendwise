@@ -23,7 +23,7 @@ function TransactionSkeleton() {
   return (
     <div className="space-y-3">
       {[1, 2, 3, 4, 5].map((i) => (
-        <div key={i} className="brutal-card pl-1 pr-4 py-1 flex items-start justify-between gap-3 animate-pulse bg-white">
+        <div key={i} className="brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-3 animate-pulse bg-white">
           <div className="flex items-start gap-3 flex-1">
             <div className="w-10 h-10 border-2 border-zinc-100 bg-zinc-50 flex-shrink-0 mt-1" />
             <div className="flex-1 space-y-2">
@@ -95,7 +95,6 @@ export function DashboardView({
       const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
       
       // Remove optimistic transactions that are no longer in the props
-      // (This happens when fetchData completes and replaces the optimistic one with a real one)
       const incomingIds = new Set(transactions.map(t => t.id));
       prev.forEach(t => {
         if (t.is_optimistic && !incomingIds.has(t.id)) {
@@ -117,7 +116,6 @@ export function DashboardView({
     if (isFetchingMore || !hasMore) return;
     
     setIsFetchingMore(true);
-    const lastTx = localTransactions.length > 0 ? localTransactions[localTransactions.length - 1] : null;
     
     try {
       let query = supabase
@@ -269,6 +267,7 @@ export function DashboardView({
           >
             {localTransactions.map((t) => {
               const dateParts = getDateParts(t.date);
+              
               // Format the created_at timestamp
               let formattedAddedDate = '';
               if (t.created_at) {
@@ -277,6 +276,18 @@ export function DashboardView({
                 const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
                 formattedAddedDate = `${timeStr} ${dateStr}`;
               }
+
+              // Format the updated_at timestamp
+              let formattedUpdatedDate = '';
+              const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
+              
+              if (isUpdated && t.updated_at) {
+                const d = new Date(t.updated_at);
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                formattedUpdatedDate = `${timeStr} ${dateStr}`;
+              }
+
               return (
                 <motion.div
                   variants={{
@@ -287,7 +298,7 @@ export function DashboardView({
                   whileTap={{ scale: 0.98 }}
                   key={t.id}
                   className={cn(
-                    "brutal-card pl-1 pr-4 py-1 flex items-start justify-between gap-2 cursor-pointer hover:bg-zinc-50 transition-colors",
+                    "brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer hover:bg-zinc-50 transition-colors",
                     t.is_optimistic && "opacity-60 border-dashed"
                   )}
                   onClick={() => !t.is_optimistic && onViewTransaction(t)}
@@ -329,10 +340,18 @@ export function DashboardView({
                             ADDED BY:- {formatUserDisplay(t.last_edited_by || '', ownerEmail, activeShareEmails, profiles)}
                           </div>
                         )}
-                        {/* Added On (New Addition) */}
+
+                        {/* Added On */}
                         {formattedAddedDate && (
                           <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                             ADDED ON:- {formattedAddedDate}
+                          </div>
+                        )}
+
+                        {/* Updated On */}
+                        {formattedUpdatedDate && (
+                          <div className="text-[10px] font-black uppercase text-blue-500 break-all">
+                            UPDATED ON:- {formattedUpdatedDate}
                           </div>
                         )}
                       </div>

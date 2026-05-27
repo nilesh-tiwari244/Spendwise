@@ -108,6 +108,26 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
               const activeEmails = bucketShares.map(s => s.shared_with_email);
               const ownerEmail = bucketShares[0]?.shared_by_email || '';
 
+              // Format the created_at timestamp
+              let formattedAddedDate = '';
+              if (t.created_at) {
+                const d = new Date(t.created_at);
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                formattedAddedDate = `${timeStr} ${dateStr}`;
+              }
+
+              // Format the updated_at timestamp
+              let formattedUpdatedDate = '';
+              const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
+              
+              if (isUpdated && t.updated_at) {
+                const d = new Date(t.updated_at);
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                formattedUpdatedDate = `${timeStr} ${dateStr}`;
+              }
+
               // Format the deleted_at timestamp
               let formattedDeletedDate = '';
               if (t.deleted_at) {
@@ -122,7 +142,7 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   key={t.id}
-                  className="brutal-card pl-1 pr-4 py-1 bg-white space-y-4 cursor-pointer hover:bg-zinc-50 transition-colors"
+                  className="brutal-card pl-1 pr-4 py-2 bg-white space-y-2 cursor-pointer hover:bg-zinc-50 transition-colors"
                   onClick={() => onViewTransaction(t)}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -162,14 +182,28 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                             </div>
                           )}
 
-                          {/* Deleted On (New Addition) */}
+                          {/* Added On */}
+                          {formattedAddedDate && (
+                            <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
+                              ADDED ON:- {formattedAddedDate}
+                            </div>
+                          )}
+
+                          {/* Updated On */}
+                          {formattedUpdatedDate && (
+                            <div className="text-[10px] font-black uppercase text-blue-500 break-all">
+                              UPDATED ON:- {formattedUpdatedDate}
+                            </div>
+                          )}
+
+                          {/* Deleted On */}
                           {t.deleted_at && (
                             <div className="text-[10px] font-black uppercase text-red-500 break-all">
                               DELETED ON:- {formattedDeletedDate}
                             </div>
                           )}
                         </div>
-                     </div> 
+                      </div>
                     </div>
 
                     <div className={cn(
@@ -180,7 +214,7 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                     </div>
                   </div>
 
-                  <div className="flex gap-2 pt-3 border-t-2 border-zinc-50">
+                  <div className="flex gap-2 pt-2 border-t-2 border-zinc-50">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
