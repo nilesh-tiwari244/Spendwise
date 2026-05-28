@@ -17,15 +17,18 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
+  
+  // THE FIX: We track the database position completely independently of the array length
+  const [dbOffset, setDbOffset] = useState(0); 
+  
   const observerTarget = useRef<HTMLDivElement>(null);
 
-  // 1. Sync the initial transactions passed from App.tsx
+  // 1. Sync the initial transactions passed from App.tsx (Instant UI Load)
   useEffect(() => {
     setLocalTransactions(prev => {
       const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
       transactions.forEach(t => map.set(t.id, t));
       
-      // Sort by absolute newest (either created or updated)
       return Array.from(map.values()).sort((a, b) => {
         const timeA = new Date(a.updated_at || a.created_at).getTime();
         const timeB = new Date(b.updated_at || b.created_at).getTime();
@@ -34,7 +37,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
     });
   }, [transactions]);
 
-  // 2. Fetch the next 100 rows directly from Supabase
+  // 2. Fetch rows sequentially using our dedicated dbOffset tracker
   const loadMore = async () => {
     if (isFetchingMore || !hasMore || buckets.length === 0) return;
     setIsFetchingMore(true);
@@ -48,12 +51,17 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
         .in('bucket_id', activeBucketIds)
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
-        .range(localTransactions.length, localTransactions.length + 99);
+        // Use our safe offset tracker instead of array length
+        .range(dbOffset, dbOffset + 99);
 
       if (error) throw error;
 
       if (data && data.length > 0) {
+        // Move the tracker forward by exactly how many rows we received
+        setDbOffset(prev => prev + data.length);
+
         setLocalTransactions(prev => {
+          // The Map perfectly handles deduplication if App.tsx already passed the row
           const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
           data.forEach(t => map.set(t.id, t));
           
@@ -64,7 +72,6 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
           });
         });
         
-        // If we got less than 100, we hit the end of the database!
         if (data.length < 100) setHasMore(false);
       } else {
         setHasMore(false);
@@ -77,7 +84,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
     }
   };
 
-  // 3. Infinite Scroll Observer (Triggers when you hit the bottom)
+  // 3. Infinite Scroll Observer
   useEffect(() => {
     const observer = new IntersectionObserver(
       entries => {
@@ -123,7 +130,6 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
               const activeEmails = bucketShares.map(s => s.shared_with_email);
               const ownerEmail = bucketShares[0]?.shared_by_email || '';
 
-              // Format the created_at timestamp
               let formattedAddedDate = '';
               if (t.created_at) {
                 const d = new Date(t.created_at);
@@ -132,7 +138,6 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                 formattedAddedDate = `${timeStr} ${dateStr}`;
               }
 
-              // Format the updated_at timestamp (6 hour safety check)
               let formattedUpdatedDate = '';
               const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
               
