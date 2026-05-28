@@ -148,48 +148,6 @@ export default function App() {
     window.scrollTo(0, 0);
   }, [currentView, selectedBucket?.id]);
 
-  useEffect(() => {
-    if (session && !isRecovery) {
-      fetchData(true);
-      
-      // Real-time subscription
-      const transactionsChannel = supabase
-        .channel('transactions-changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'transactions' },
-          () => fetchData(false)
-        )
-        .subscribe();
-
-      const categoriesChannel = supabase
-        .channel('categories-changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'categories' },
-          () => fetchData(false)
-        )
-        .subscribe();
-
-      const sharesChannel = supabase
-        .channel('shares-changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'bucket_shares' },
-          () => fetchData(false)
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(transactionsChannel);
-        supabase.removeChannel(categoriesChannel);
-        supabase.removeChannel(sharesChannel);
-      };
-    } else {
-      setIsAppLoading(false);
-    }
-  }, [session, isRecovery]);
-
   const fetchData = useCallback(async (isInitial = false, bucketOverride?: Bucket | null) => {
     if (!session) return;
     
@@ -242,17 +200,26 @@ export default function App() {
 
       let transactionsData: Transaction[] = [];
       if (activeBucketIds.length > 0) {
-          const queries = activeBucketIds.map(id => 
-            supabase.from('transactions')
-              .select('*, category:categories(*)')
-              .eq('bucket_id', id)
-              .is('deleted_at', null)
-              .order('date', { ascending: false })
-              .order('created_at', { ascending: false })
-              .limit(loadedTxCount.current + 10) // Keeps dashboard stable on wake-up
-          );
-          const results = await Promise.all(queries);
-          transactionsData = results.flatMap(r => r.data || []);
+        // THE N+1 FIX: Collapse 13+ per-bucket loops into 1 single smart query
+        let query = supabase
+          .from('transactions')
+          .select('*, category:categories(*)')
+          .is('deleted_at', null)
+          .order('date', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        if (currentSelectedBucket) {
+          // If you are inside a bucket dashboard, ONLY ask for that specific bucket
+          query = query.eq('bucket_id', currentSelectedBucket.id).limit(loadedTxCount.current + 10);
+        } else {
+          // If you are on the home screen, just grab a global pool of recent items
+          query = query.in('bucket_id', activeBucketIds).limit(loadedTxCount.current + 50);
+        }
+
+        const { data, error } = await query;
+        if (!error && data) {
+          transactionsData = data;
+        }
       }
 
       const totalsMap: Record<string, number> = {};
@@ -290,6 +257,63 @@ export default function App() {
       setIsDataLoading(false);
     }
   }, [session, selectedBucket]);
+
+  // THE EVENT DEBOUNCER
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedFetchData = useCallback(() => {
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+    }
+    fetchTimeoutRef.current = setTimeout(() => {
+      fetchData(false);
+    }, 1500); // Wait 1.5 seconds after the LAST database change before fetching
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (session && !isRecovery) {
+      fetchData(true);
+      
+      // Real-time subscription using debounced fetch
+      const transactionsChannel = supabase
+        .channel('transactions-changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'transactions' },
+          () => debouncedFetchData()
+        )
+        .subscribe();
+
+      const categoriesChannel = supabase
+        .channel('categories-changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'categories' },
+          () => debouncedFetchData()
+        )
+        .subscribe();
+
+      const sharesChannel = supabase
+        .channel('shares-changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'bucket_shares' },
+          () => debouncedFetchData()
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(transactionsChannel);
+        supabase.removeChannel(categoriesChannel);
+        supabase.removeChannel(sharesChannel);
+        if (fetchTimeoutRef.current) {
+          clearTimeout(fetchTimeoutRef.current);
+        }
+      };
+    } else {
+      setIsAppLoading(false);
+    }
+  }, [session, isRecovery, fetchData, debouncedFetchData]);
 
   const optimisticAddTransaction = useCallback((newTx: Partial<Transaction>) => {
     const tempId = `opt-${Date.now()}`;
@@ -383,7 +407,7 @@ export default function App() {
 
       setNewBucketName('');
       setIsAddingBucket(false);
-      fetchData();
+      debouncedFetchData();
     } catch (err: any) {
       console.error(err.message);
     } finally {
@@ -479,7 +503,7 @@ export default function App() {
   const handleNavigate = useCallback((view: View) => {
     if (view === 'buckets') setSelectedBucket(null);
     setCurrentView(view);
-    
+
     // BACKEND PAGINATION PRO-MOVE: 
     // EVERY view manages its own fetching now! NO heavy downloads ever!
 
@@ -517,8 +541,7 @@ export default function App() {
         const view = event.state.view as View;
         const bucketId = event.state.bucketId;
         
-        const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activity', 'categories'];
-        if (bucketSpecificViews.includes(view) && !bucketId) {
+const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activity', 'categories'];        if (['dashboard', 'summary', 'analyze', 'activity', 'categories'].includes(view) && !bucketId) {
           setSelectedBucket(null);
           setCurrentView('buckets');
           return;
@@ -530,7 +553,7 @@ export default function App() {
             const bucket = currentBuckets.find(b => b.id === bucketId);
             if (bucket) {
               setSelectedBucket(bucket);
-            } else if (bucketSpecificViews.includes(view)) {
+            } else if (['dashboard', 'summary', 'analyze', 'activity', 'categories'].includes(view)) {
               setCurrentView('buckets');
               setSelectedBucket(null);
             }
@@ -567,12 +590,12 @@ export default function App() {
 
       if (error) throw error;
       await logActivity(bucketId, 'ownership_transfer_initiated', { recipient: email });
-      await handleRefresh();
+      debouncedFetchData();
     } catch (err: any) {
       console.error(err);
       throw err;
     }
-  }, [session, handleRefresh]);
+  }, [session, debouncedFetchData]);
 
   const handleCancelTransfer = useCallback(async (shareId: string, bucketId: string) => {
     try {
@@ -583,12 +606,12 @@ export default function App() {
 
       if (error) throw error;
       await logActivity(bucketId, 'ownership_transfer_cancelled');
-      await handleRefresh();
+      debouncedFetchData();
     } catch (err: any) {
       console.error(err);
       throw err;
     }
-  }, [handleRefresh]);
+  }, [debouncedFetchData]);
 
   const handleAcceptTransfer = useCallback(async (share: BucketShare) => {
     if (!session) return;
@@ -600,12 +623,12 @@ export default function App() {
       if (error) throw error;
 
       await logActivity(share.bucket_id, 'ownership_transfer_accepted', { previous_owner: share.shared_by_email });
-      await handleRefresh();
+      debouncedFetchData();
     } catch (err: any) {
       console.error(err);
       throw new Error("Failed to accept transfer: " + err.message);
     }
-  }, [session, handleRefresh]);
+  }, [session, debouncedFetchData]);
 
   const handleRejectTransfer = useCallback(async (shareId: string) => {
     try {
@@ -614,12 +637,12 @@ export default function App() {
       });
 
       if (error) throw error;
-      await handleRefresh();
+      debouncedFetchData();
     } catch (err: any) {
       console.error(err);
       throw new Error("Failed to reject transfer: " + err.message);
     }
-  }, [handleRefresh]);
+  }, [debouncedFetchData]);
 
   if (loading || isAppLoading) {
     return (
@@ -787,7 +810,7 @@ export default function App() {
                 onSuccess={() => {
                   setEditingTransaction(null);
                   window.history.back();
-                fetchData(false);
+                  debouncedFetchData();
                 }}
                 onOptimisticAdd={optimisticAddTransaction}
                 onOptimisticEdit={optimisticEditTransaction}
@@ -834,7 +857,6 @@ export default function App() {
               />
             </motion.div>
           )}
-          {/* UPDATED MEMOIZED ANALYZE VIEW (Lazy Loading + Fetch on Click) */}
           {currentView === 'analyze' && (
             <motion.div
               key="analyze"
