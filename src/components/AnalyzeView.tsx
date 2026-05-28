@@ -1,18 +1,16 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
-import { formatCurrency, cn, formatDate, truncateRemarks, getDateParts, formatUserDisplay } from '../lib/utils';
-import { ArrowLeft, Search as SearchIcon, Calendar, Tag, X, PieChart, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown } from 'lucide-react';
+import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
+import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay } from '../lib/utils';
+import { ArrowLeft, Search as SearchIcon, Tag, X, PieChart, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface AnalyzeViewProps {
-  transactions: Transaction[];
   categories: Category[];
   buckets: Bucket[];
   shares: BucketShare[];
   profiles: Record<string, string>;
   selectedBucket: Bucket | null;
   user: any;
-  isSyncing?: boolean;
   initialParams?: {
     categoryId?: string;
     startDate?: string;
@@ -34,7 +32,8 @@ function getContrastColor(hexColor: string | undefined): string {
   return brightness > 128 ? 'text-zinc-900' : 'text-white';
 }
 
-export function AnalyzeView({ transactions, categories, buckets, shares, profiles, selectedBucket, user, isSyncing, initialParams, onBack, onViewTransaction }: AnalyzeViewProps) {
+export function AnalyzeView({ categories, buckets, shares, profiles, selectedBucket, user, initialParams, onBack, onViewTransaction }: AnalyzeViewProps) {
+  // Input States (Draft Filters)
   const [keyword, setKeyword] = useState('');
   const [categoryId, setCategoryId] = useState(initialParams?.categoryId || '');
   const [categorySearch, setCategorySearch] = useState(categories.find(c => c.id === initialParams?.categoryId)?.name || '');
@@ -45,7 +44,11 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
   const [selectedBucketIds, setSelectedBucketIds] = useState<string[]>(selectedBucket ? [selectedBucket.id] : []);
-  const [isAnalyzed, setIsAnalyzed] = useState(initialParams?.autoRun || false);
+  
+  // Results State
+  const [isAnalyzed, setIsAnalyzed] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzedTransactions, setAnalyzedTransactions] = useState<Transaction[]>([]);
 
   const uniqueCategories = useMemo(() => {
     if (selectedBucket) return categories.filter(c => c.bucket_id === selectedBucket.id);
@@ -75,42 +78,65 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredTransactions = useMemo(() => {
-    const selectedCategory = categories.find(c => c.id === categoryId);
-    return transactions.filter(t => {
-      if (t.deleted_at) return false;
-      if (selectedBucketIds.length > 0 && !selectedBucketIds.includes(t.bucket_id)) return false;
-      const matchesKeyword = !keyword || t.remarks?.toLowerCase().includes(keyword.toLowerCase());
-      
-      let matchesCategory = !categoryId;
-      if (categoryId) {
-        if (selectedBucket) {
-          matchesCategory = t.category_id === categoryId;
-        } else if (selectedCategory) {
-          matchesCategory = t.category?.name.toLowerCase() === selectedCategory.name.toLowerCase();
-        }
+  // Database Fetch Logic (Runs only on button click)
+  const runAnalysis = async () => {
+    setIsAnalyzing(true);
+    
+    try {
+      let query = supabase
+        .from('transactions')
+        .select('*, category:categories(*)')
+        .is('deleted_at', null);
+
+      // Apply Bucket Filters
+      if (selectedBucketIds.length > 0) {
+        query = query.in('bucket_id', selectedBucketIds);
+      } else {
+        const activeBucketIds = buckets.map(b => b.id);
+        query = query.in('bucket_id', activeBucketIds);
       }
 
-      const matchesStartDate = !startDate || new Date(t.date) >= new Date(startDate);
-      const matchesEndDate = !endDate || new Date(t.date) <= new Date(endDate + 'T23:59:59');
-      
-      const amt = Number(t.amount);
-      const matchesMin = !minAmount || amt >= Number(minAmount);
-      const matchesMax = !maxAmount || amt <= Number(maxAmount);
+      // Apply Exact Filters
+      if (categoryId) query = query.eq('category_id', categoryId);
+      if (startDate) query = query.gte('date', startDate);
+      if (endDate) query = query.lte('date', endDate + 'T23:59:59');
+      if (minAmount) query = query.gte('amount', minAmount);
+      if (maxAmount) query = query.lte('amount', maxAmount);
+      if (keyword) query = query.ilike('remarks', `%${keyword}%`);
 
-      return matchesKeyword && matchesCategory && matchesStartDate && matchesEndDate && matchesMin && matchesMax;
-    });
-  }, [transactions, keyword, categoryId, startDate, endDate, minAmount, maxAmount, selectedBucketIds, categories, selectedBucket]);
+      const { data, error } = await query
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(2000); // Prevents crashing if too broad, perfect for printing
+
+      if (error) throw error;
+      
+      setAnalyzedTransactions(data || []);
+      setIsAnalyzed(true);
+    } catch (err) {
+      console.error('Analysis failed:', err);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Auto-run if requested from Summary page
+  useEffect(() => {
+    if (initialParams?.autoRun && !isAnalyzed) {
+      runAnalysis();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stats = useMemo(() => {
-    const credit = filteredTransactions
+    const credit = analyzedTransactions
       .filter(t => t.type === 'Credit')
       .reduce((sum, t) => sum + Number(t.amount), 0);
-    const debit = filteredTransactions
+    const debit = analyzedTransactions
       .filter(t => t.type === 'Debit')
       .reduce((sum, t) => sum + Number(t.amount), 0);
     return { credit, debit, net: credit - debit };
-  }, [filteredTransactions]);
+  }, [analyzedTransactions]);
 
   const clearFilters = () => {
     setKeyword('');
@@ -122,6 +148,7 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
     setMaxAmount('');
     setSelectedBucketIds(selectedBucket ? [selectedBucket.id] : []);
     setIsAnalyzed(false);
+    setAnalyzedTransactions([]);
   };
 
   const toggleBucket = (id: string) => {
@@ -137,61 +164,11 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
   const isAllOwned = useMemo(() => {
     if (!isAnalyzed) return true;
     const bucketMap = new Map(buckets.map(b => [b.id, b]));
-    return filteredTransactions.every(t => {
+    return analyzedTransactions.every(t => {
       const bucket = bucketMap.get(t.bucket_id);
       return bucket?.user_id === user.id;
     });
-  }, [filteredTransactions, buckets, user.id, isAnalyzed]);
-
-  if (isSyncing) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <button disabled className="p-2 brutal-card bg-white opacity-50">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3">
-            Analyze
-          </h2>
-        </div>
-
-        <div className="bg-white border-2 border-zinc-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 space-y-6 animate-pulse">
-           <div className="space-y-2">
-             <div className="h-3 w-16 bg-zinc-50" />
-             <div className="flex gap-2">
-                <div className="h-8 w-12 bg-zinc-100 border-2 border-zinc-200" />
-                <div className="h-8 w-24 bg-zinc-100 border-2 border-zinc-200" />
-                <div className="h-8 w-20 bg-zinc-100 border-2 border-zinc-200" />
-             </div>
-           </div>
-           
-           <div className="h-12 w-full bg-zinc-100" />
-           <div className="h-10 w-full bg-zinc-100" />
-           
-           <div className="grid grid-cols-2 gap-3">
-              <div className="h-14 bg-zinc-50" />
-              <div className="h-14 bg-zinc-50" />
-           </div>
-
-           <div className="flex gap-3">
-              <div className="flex-1 h-12 bg-zinc-100 border-2 border-zinc-200" />
-              <div className="flex-[2] h-12 bg-zinc-900/10" />
-           </div>
-        </div>
-
-        <div className="flex justify-center p-8">
-          <div className="flex items-center gap-2 px-6 py-3 bg-amber-50 border-2 border-amber-500 text-amber-700 font-black uppercase text-xs animate-pulse">
-             <div className="w-2 h-2 bg-amber-500 rounded-full animate-ping" />
-             Syncing Full History Data...
-          </div>
-        </div>
-
-        <div className="brutal-card bg-zinc-50 border-dashed p-12 text-center">
-            <div className="text-[10px] font-black uppercase text-zinc-300">Preparing Analysis Engine</div>
-        </div>
-      </div>
-    );
-  }
+  }, [analyzedTransactions, buckets, user.id, isAnalyzed]);
 
   return (
     <div className="space-y-6 pb-32">
@@ -201,12 +178,6 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
         </button>
         <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3">
           Analyze
-          {isSyncing && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 border border-amber-500 text-[10px] text-amber-700 animate-pulse rounded-full lowercase tracking-normal">
-              <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
-              Syncing full history...
-            </div>
-          )}
         </h2>
       </div>
 
@@ -379,11 +350,12 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
             Clear
           </button>
           <button 
-            onClick={() => setIsAnalyzed(true)}
+            onClick={runAnalysis}
+            disabled={isAnalyzing}
             className="flex-[2] brutal-button py-3 flex items-center justify-center gap-2"
           >
-            <PieChart className="w-4 h-4" />
-            Analyze
+            {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PieChart className="w-4 h-4" />}
+            {isAnalyzing ? 'Analyzing...' : 'Analyze'}
           </button>
         </div>
       </div>
@@ -397,7 +369,7 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
           <div className="space-y-4">
             <div className="flex justify-between items-center border-b-2 border-zinc-900 pb-2">
               <h3 className="text-xs font-black uppercase tracking-widest">Analysis Result</h3>
-              <span className="text-[10px] font-black uppercase text-zinc-400">{filteredTransactions.length} transactions</span>
+              <span className="text-[10px] font-black uppercase text-zinc-400">{analyzedTransactions.length} transactions</span>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
@@ -456,19 +428,18 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
             </div>
             
             <div className="space-y-3">
-              {filteredTransactions.length === 0 ? (
+              {analyzedTransactions.length === 0 ? (
                 <div className="text-center py-8 brutal-card bg-zinc-100 border-dashed">
                   <p className="text-[10px] font-black uppercase text-zinc-400">No transactions match these filters</p>
                 </div>
               ) : (
-                filteredTransactions.map((t) => {
+                analyzedTransactions.map((t) => {
                   const dateParts = getDateParts(t.date);
                   const bucket = buckets.find(b => b.id === t.bucket_id);
                   const bucketShares = shares.filter(s => s.bucket_id === t.bucket_id && s.status === 'accepted');
                   const activeEmails = bucketShares.map(s => s.shared_with_email);
                   const ownerEmail = bucketShares[0]?.shared_by_email || (bucket?.user_id === user.id ? user.email : '');
 
-                  // Format the created_at timestamp
                   let formattedAddedDate = '';
                   if (t.created_at) {
                     const d = new Date(t.created_at);
@@ -477,7 +448,6 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
                     formattedAddedDate = `${timeStr} ${dateStr}`;
                   }
 
-                  // Format the updated_at timestamp
                   let formattedUpdatedDate = '';
                   const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
                   
@@ -497,7 +467,6 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
                       className="brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer bg-white"
                     >
                       <div className="flex items-start gap-2 min-w-0 flex-1">
-                        {/* Date Block */}
                         <div className={cn(
                           "w-14 h-[72px] border-2 border-zinc-900 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                           t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
@@ -509,7 +478,6 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
 
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-col gap-0.5">
-                            {/* Bucket and Category Box */}
                             <div className="flex items-center gap-2 flex-wrap mb-0.5">
                               <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                                 {bucket?.name || 'No Bucket'}
@@ -519,26 +487,22 @@ export function AnalyzeView({ transactions, categories, buckets, shares, profile
                               </div>
                             </div>
                             
-                            {/* Remarks */}
                             <div className="font-black text-base leading-tight truncate text-zinc-900">
                               {truncateRemarks(t.remarks) || 'No Remarks'}
                             </div>
 
-                            {/* Added By */}
                             {t.last_edited_by && (
                               <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                                 ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
                               </div>
                             )}
 
-                            {/* Added On */}
                             {formattedAddedDate && (
                               <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                                 ADDED ON:- {formattedAddedDate}
                               </div>
                             )}
 
-                            {/* Updated On */}
                             {formattedUpdatedDate && (
                               <div className="text-[10px] font-black uppercase text-blue-500 break-all">
                                 UPDATED ON:- {formattedUpdatedDate}

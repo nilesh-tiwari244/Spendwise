@@ -62,7 +62,6 @@ export default function App() {
   const [pendingShares, setPendingShares] = useState<BucketShare[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddingBucket, setIsAddingBucket] = useState(false);
@@ -292,108 +291,6 @@ export default function App() {
     }
   }, [session, selectedBucket]);
 
-  const syncFullHistory = useCallback(async (bucketId: string) => {
-    if (!session || isSyncing) return;
-    setIsSyncing(true);
-    try {
-      let allData: Transaction[] = [];
-      let hasMore = true;
-      let from = 0;
-      const batchSize = 1000;
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('transactions')
-          .select('*, category:categories(*)')
-          .eq('bucket_id', bucketId)
-          .is('deleted_at', null)
-          .order('date', { ascending: false })
-          .order('created_at', { ascending: false })
-          .range(from, from + batchSize - 1);
-
-        if (error) throw error;
-        if (data) {
-          allData = [...allData, ...data];
-          if (data.length < batchSize) {
-            hasMore = false;
-          } else {
-            from += batchSize;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
-
-      setTransactions(prev => {
-        const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
-        allData.forEach(t => map.set(t.id, t));
-        return Array.from(map.values()).sort((a, b) => {
-          const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
-          if (dateDiff !== 0) return dateDiff;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-      });
-    } catch (err) {
-      console.error('Error syncing full history:', err);
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [session, isSyncing]);
-
-  const syncAllHistory = useCallback(async () => {
-    if (!session || isSyncing) return;
-    setIsSyncing(true);
-    try {
-      const activeBucketIds = buckets
-        .filter(b => !b.archived_at)
-        .map(b => b.id);
-
-      if (activeBucketIds.length === 0) return;
-
-      let allData: Transaction[] = [];
-      let hasMore = true;
-      let from = 0;
-      const batchSize = 1000;
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('transactions')
-          .select('*, category:categories(*)')
-          .in('bucket_id', activeBucketIds)
-          .is('deleted_at', null)
-          .order('date', { ascending: false })
-          .order('created_at', { ascending: false })
-          .range(from, from + batchSize - 1);
-
-        if (error) throw error;
-        if (data) {
-          allData = [...allData, ...data];
-          if (data.length < batchSize) {
-            hasMore = false;
-          } else {
-            from += batchSize;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
-
-      setTransactions(prev => {
-        const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
-        allData.forEach(t => map.set(t.id, t));
-        return Array.from(map.values()).sort((a, b) => {
-          const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
-          if (dateDiff !== 0) return dateDiff;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-      });
-    } catch (err) {
-      console.error('Error syncing all history:', err);
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [session, isSyncing, buckets]);
-
   const optimisticAddTransaction = useCallback((newTx: Partial<Transaction>) => {
     const tempId = `opt-${Date.now()}`;
     const optimisticTx: Transaction = {
@@ -583,22 +480,15 @@ export default function App() {
     if (view === 'buckets') setSelectedBucket(null);
     setCurrentView(view);
     
-    // BACKEND PAGINATION: ONLY 'analyze' forces a full global download now. 
-    // RecentlyAdded fetches its own data independently!
-    if (view === 'analyze') {
-      if (selectedBucket) {
-        syncFullHistory(selectedBucket.id);
-      } else {
-        syncAllHistory();
-      }
-    }
+    // BACKEND PAGINATION PRO-MOVE: 
+    // EVERY view manages its own fetching now! NO heavy downloads ever!
 
     if (view !== 'buckets') {
       window.history.pushState({ view, bucketId: selectedBucket?.id }, '', `#${view}`);
     } else {
       window.history.pushState({ view: 'buckets', bucketId: null }, '', '#buckets');
     }
-  }, [selectedBucket, syncFullHistory, syncAllHistory]);
+  }, [selectedBucket]);
 
   const handleSelectBucket = useCallback((bucket: Bucket) => {
     setSelectedBucket(bucket);
@@ -944,6 +834,7 @@ export default function App() {
               />
             </motion.div>
           )}
+          {/* UPDATED MEMOIZED ANALYZE VIEW (Lazy Loading + Fetch on Click) */}
           {currentView === 'analyze' && (
             <motion.div
               key="analyze"
@@ -952,7 +843,6 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95 }}
             >
               <MemoizedAnalyzeView 
-                transactions={activeGlobalTransactions}
                 categories={categories}
                 buckets={activeBuckets}
                 shares={shares}
@@ -960,7 +850,6 @@ export default function App() {
                 selectedBucket={enhancedSelectedBucket}
                 user={session.user}
                 initialParams={analyzeParams}
-                isSyncing={isSyncing}
                 onBack={() => {
                   setAnalyzeParams(null);
                   window.history.back();
@@ -969,7 +858,6 @@ export default function App() {
               />
             </motion.div>
           )}
-          {/* UPDATED MEMOIZED RECENTLY ADDED VIEW (Lazy Loading from Backend) */}
           {currentView === 'recently-added' && (
             <motion.div
               key="recently-added"
