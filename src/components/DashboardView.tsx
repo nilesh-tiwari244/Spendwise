@@ -1,20 +1,15 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
-import { Plus, Tag, ArrowUpRight, ArrowDownLeft, Edit2, Paperclip, History, Loader2, RefreshCw, ClipboardList } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList } from 'lucide-react';
 
-// Helper to determine if text should be light or dark based on background color
 function getContrastColor(hexColor: string | undefined): string {
   if (!hexColor || hexColor === '#ffffff' || hexColor === 'transparent') return 'text-zinc-900';
-  
-  // Remove hash if present
   const color = hexColor.replace('#', '');
   const r = parseInt(color.slice(0, 2), 16);
   const g = parseInt(color.slice(2, 4), 16);
   const b = parseInt(color.slice(4, 6), 16);
-  
-  // Calculate brightness (YIQ formula)
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
   return brightness > 128 ? 'text-zinc-900' : 'text-white';
 }
@@ -50,12 +45,8 @@ interface DashboardViewProps {
   canEdit: boolean;
   profiles: Record<string, string>;
   isLoading?: boolean;
-  onAddClick: () => void;
   onEditTransaction: (transaction: Transaction) => void;
   onViewTransaction: (transaction: Transaction) => void;
-  onManageCategories: () => void;
-  onViewActivity: () => void;
-  onViewSummary: () => void;
   totalBalance: number;
 }
 
@@ -67,14 +58,13 @@ export function DashboardView({
   canEdit, 
   profiles,
   isLoading,
-  onAddClick, 
   onEditTransaction, 
   onViewTransaction, 
-  onManageCategories, 
-  onViewActivity,
-  onViewSummary,
   totalBalance
 }: DashboardViewProps) {
+  
+  const navigate = useNavigate();
+
   const activeShareEmails = useMemo(() => shares.filter(s => s.bucket_id === bucket.id && s.status === 'accepted').map(s => s.shared_with_email), [shares, bucket.id]);
 
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
@@ -82,28 +72,22 @@ export function DashboardView({
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const observerTarget = useRef<HTMLDivElement>(null);
 
-  // Reset states when bucket changes
   useEffect(() => {
     setLocalTransactions([]);
     setHasMore(true);
     setIsFetchingMore(false);
   }, [bucket.id]);
 
-  // Sync prop transactions (which are the initial 50 or updated from real-time) with local state
   useEffect(() => {
     setLocalTransactions(prev => {
       const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
-      
-      // Remove optimistic transactions that are no longer in the props
       const incomingIds = new Set(transactions.map(t => t.id));
       prev.forEach(t => {
         if (t.is_optimistic && !incomingIds.has(t.id)) {
           map.delete(t.id);
         }
       });
-
       transactions.forEach(t => map.set(t.id, t));
-      
       return Array.from(map.values()).sort((a, b) => {
         const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
         if (dateDiff !== 0) return dateDiff;
@@ -114,7 +98,6 @@ export function DashboardView({
 
   const loadMore = async () => {
     if (isFetchingMore || !hasMore) return;
-    
     setIsFetchingMore(true);
     
     try {
@@ -132,8 +115,6 @@ export function DashboardView({
         .range(localTransactions.length, localTransactions.length + 99);
 
       if (error) throw error;
-
-      // Verify we are still on the same bucket before updating state
       if (currentBucketId !== bucket.id) return;
 
       if (data && data.length > 0) {
@@ -199,41 +180,57 @@ export function DashboardView({
       {/* Actions */}
       <div className="grid grid-cols-2 gap-2">
         {canEdit && (
-          <motion.button 
-            whileTap={{ scale: 0.95, x: 2, y: 2 }}
-            onClick={onAddClick} 
-            className="brutal-button flex items-center justify-center gap-2 py-2"
+          <button 
+            type="button"
+            onClick={() => navigate(`/bucket/${bucket.id}/add-transaction`)} 
+            onPointerUp={(e) => {
+              e.preventDefault();
+              navigate(`/bucket/${bucket.id}/add-transaction`);
+            }}
+            className="brutal-button flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
           >
             <Plus className="w-5 h-5" />
             <span className="font-black uppercase text-sm">Add New</span>
-          </motion.button>
+          </button>
         )}
-        <motion.button 
-          whileTap={{ scale: 0.95, x: 2, y: 2 }}
-          onClick={onViewActivity} 
-          className="brutal-button bg-zinc-100 text-zinc-900 flex items-center justify-center gap-2 py-2"
+        <button 
+          type="button"
+          onClick={() => navigate(`/bucket/${bucket.id}/activity`)} 
+          onPointerUp={(e) => {
+            e.preventDefault();
+            navigate(`/bucket/${bucket.id}/activity`);
+          }}
+          className="brutal-button bg-zinc-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
         >
           <History className="w-5 h-5" />
           <span className="font-black uppercase text-sm">Activity</span>
-        </motion.button>
+        </button>
         {canEdit && (
-          <motion.button 
-            whileTap={{ scale: 0.95, x: 2, y: 2 }}
-            onClick={onManageCategories} 
-            className="brutal-button bg-white text-zinc-900 flex items-center justify-center gap-2 py-2"
+          <button 
+            type="button"
+            onClick={() => navigate(`/bucket/${bucket.id}/categories`)}
+            onPointerUp={(e) => {
+              e.preventDefault();
+              navigate(`/bucket/${bucket.id}/categories`);
+            }} 
+            className="brutal-button bg-white text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
           >
             <Tag className="w-5 h-5" />
             <span className="font-black uppercase text-sm">Categories</span>
-          </motion.button>
+          </button>
         )}
-        <motion.button 
-          whileTap={{ scale: 0.95, x: 2, y: 2 }}
-          onClick={onViewSummary} 
-          className="brutal-button bg-sky-100 text-zinc-900 flex items-center justify-center gap-2 py-2"
+        <button 
+          type="button"
+          onClick={() => navigate(`/bucket/${bucket.id}/summary`)}
+          onPointerUp={(e) => {
+            e.preventDefault();
+            navigate(`/bucket/${bucket.id}/summary`);
+          }} 
+          className="brutal-button bg-sky-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-sky-200 active:bg-sky-300 transition-colors touch-manipulation"
         >
           <ClipboardList className="w-5 h-5" />
           <span className="font-black uppercase text-sm">Summary</span>
-        </motion.button>
+        </button>
       </div>
 
       {/* Transactions List */}
@@ -251,60 +248,38 @@ export function DashboardView({
             </div>
           )
         ) : (
-          <motion.div 
-            initial="hidden"
-            animate="show"
-            variants={{
-              hidden: { opacity: 0 },
-              show: {
-                opacity: 1,
-                transition: {
-                  staggerChildren: 0.05
-                }
-              }
-            }}
-            className="space-y-3"
-          >
+          <div className="space-y-3">
             {localTransactions.map((t) => {
               const dateParts = getDateParts(t.date);
               
-              // Format the created_at timestamp
               let formattedAddedDate = '';
               if (t.created_at) {
                 const d = new Date(t.created_at);
-                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                formattedAddedDate = `${timeStr} ${dateStr}`;
+                formattedAddedDate = `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} ${d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
               }
 
-              // Format the updated_at timestamp
               let formattedUpdatedDate = '';
               const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
-              
               if (isUpdated && t.updated_at) {
                 const d = new Date(t.updated_at);
-                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-                const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                formattedUpdatedDate = `${timeStr} ${dateStr}`;
+                formattedUpdatedDate = `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} ${d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
               }
 
               return (
-                <motion.div
-                  variants={{
-                    hidden: { opacity: 0, x: -10 },
-                    show: { opacity: 1, x: 0 }
-                  }}
-                  whileHover={{ x: 4 }}
-                  whileTap={{ scale: 0.98 }}
+                <div
                   key={t.id}
                   className={cn(
-                    "brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer hover:bg-zinc-50 transition-colors",
+                    "brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer hover:bg-zinc-50 active:bg-zinc-100 transition-colors touch-manipulation",
                     t.is_optimistic && "opacity-60 border-dashed"
                   )}
                   onClick={() => !t.is_optimistic && onViewTransaction(t)}
+                  onPointerUp={(e) => {
+                    // Prevent slight scroll cancellation for viewing a transaction
+                    e.preventDefault();
+                    if (!t.is_optimistic) onViewTransaction(t);
+                  }}
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
-                    {/* Date Block */}
                     <div className={cn(
                       "w-14 h-[72px] border-2 border-zinc-900 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                       t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
@@ -316,7 +291,6 @@ export function DashboardView({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-0.5">
-                        {/* Category Box */}
                         <div className="flex items-center gap-2">
                           <div className="border-2 border-zinc-900 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                             {t.category?.name || '---'}
@@ -324,12 +298,10 @@ export function DashboardView({
                           {t.file_url && <Paperclip className="w-3 h-3 text-zinc-400 flex-shrink-0" />}
                         </div>
                         
-                        {/* Remarks */}
                         <div className="font-black text-base leading-tight truncate text-zinc-900">
                           {truncateRemarks(t.remarks) || 'No Remarks'}
                         </div>
 
-                        {/* Added By */}
                         {t.last_edited_by && (
                           <div className={cn(
                             "text-[10px] font-black uppercase break-all",
@@ -341,14 +313,12 @@ export function DashboardView({
                           </div>
                         )}
 
-                        {/* Added On */}
                         {formattedAddedDate && (
                           <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
                             ADDED ON:- {formattedAddedDate}
                           </div>
                         )}
 
-                        {/* Updated On */}
                         {formattedUpdatedDate && (
                           <div className="text-[10px] font-black uppercase text-blue-500 break-all">
                             UPDATED ON:- {formattedUpdatedDate}
@@ -368,28 +338,30 @@ export function DashboardView({
                     
                     {canEdit && (
                       <button 
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onEditTransaction(t);
                         }}
-                        className="w-10 h-10 border-2 border-zinc-900 bg-white hover:bg-zinc-100 transition-all flex items-center justify-center p-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px] active:translate-y-[1px]"
+                        onPointerUp={(e) => {
+                          // Prevent ghost click and stop it from triggering the parent row's view action
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onEditTransaction(t);
+                        }}
+                        className="w-10 h-10 border-2 border-zinc-900 bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:bg-zinc-200 touch-manipulation"
                       >
                         <Edit2 className="w-5 h-5 text-zinc-900" />
                       </button>
                     )}
                   </div>
-                </motion.div>
+                </div>
               );
             })}
             
-            {/* Infinite Scroll Trigger */}
             {hasMore && (
               <div ref={observerTarget} className="py-8 flex justify-center">
-                {isFetchingMore ? (
-                  <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
-                ) : (
-                  <div className="h-6" /> // Invisible trigger area
-                )}
+                {isFetchingMore ? <Loader2 className="w-6 h-6 animate-spin text-zinc-400" /> : <div className="h-6" />}
               </div>
             )}
             {!hasMore && localTransactions.length > 0 && (
@@ -397,7 +369,7 @@ export function DashboardView({
                 End of history
               </div>
             )}
-          </motion.div>
+          </div>
         )}
       </section>
     </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
 import { supabase, type Category, type Transaction, type Bucket, type BucketShare } from './lib/supabase';
 import { AuthView } from './components/AuthView';
 import { DashboardView } from './components/DashboardView';
@@ -14,7 +15,7 @@ import { ActivityLogView } from './components/ActivityLogView';
 import { SummaryView } from './components/SummaryView';
 import { ProfileView } from './components/ProfileView';
 import { Sidebar } from './components/Sidebar';
-import { Loader2, Menu, ArrowLeft, Plus, X, Clock, BarChart3, Send } from 'lucide-react';
+import { Loader2, Menu, ArrowLeft, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, downloadCSV } from './lib/utils';
 import { logActivity } from './lib/activity';
@@ -35,8 +36,6 @@ const MemoizedSummaryView = React.memo(SummaryView);
 const MemoizedProfileView = React.memo(ProfileView);
 const MemoizedSidebar = React.memo(Sidebar);
 
-type View = 'buckets' | 'dashboard' | 'add-transaction' | 'categories' | 'view-transaction' | 'deleted' | 'analyze' | 'recently-added' | 'archive' | 'activity' | 'summary' | 'profile';
-
 type AnalyzeParams = {
   categoryId?: string;
   startDate?: string;
@@ -44,59 +43,57 @@ type AnalyzeParams = {
   autoRun?: boolean;
 } | null;
 
+// ROUTER HELPER: Extracts the bucket from the URL and passes it to children safely
+// so we don't have to rewrite all the child component props at once.
+function BucketRouteWrapper({ buckets, children }: { buckets: Bucket[], children: (bucket: Bucket) => React.ReactNode }) {
+  const { bucketId } = useParams();
+  const bucket = buckets.find(b => b.id === bucketId);
+  
+  if (!bucket) return <Navigate to="/" replace />;
+  
+  return <>{children(bucket)}</>;
+}
+
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<View>('buckets');
+  
+  // We keep these in global state for now to minimize breaking changes during transition
   const [analyzeParams, setAnalyzeParams] = useState<AnalyzeParams>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+
   const [isAppLoading, setIsAppLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [bucketTotals, setBucketTotals] = useState<Record<string, number>>({});
   const [grandTotal, setGrandTotal] = useState<number>(0);
   const [orphanedCount, setOrphanedCount] = useState<number>(0);
   const [buckets, setBuckets] = useState<Bucket[]>([]);
-  const [selectedBucket, setSelectedBucket] = useState<Bucket | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [shares, setShares] = useState<BucketShare[]>([]);
   const [pendingShares, setPendingShares] = useState<BucketShare[]>([]);
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddingBucket, setIsAddingBucket] = useState(false);
   const [newBucketName, setNewBucketName] = useState('');
+  
+  const [isBucketLoading, setIsBucketLoading] = useState(false);
+  const [isRecovery, setIsRecovery] = useState(false);
 
-  // Protects the Dashboard from wiping data when the phone wakes up from sleep
+  // Derive the active bucket from the URL for global UI elements (like the header)
+  const match = location.pathname.match(/\/bucket\/([^/]+)/);
+  const urlBucketId = match ? match[1] : null;
+
   const loadedTxCount = useRef(50);
   useEffect(() => {
     if (transactions.length > loadedTxCount.current) {
       loadedTxCount.current = transactions.length;
     }
   }, [transactions.length]);
-
-  // SWR: Try loading from cache immediately
-  useEffect(() => {
-    try {
-      const cachedBuckets = localStorage.getItem('sw_buckets');
-      const cachedTotals = localStorage.getItem('sw_bucketTotals');
-      const cachedGrandTotal = localStorage.getItem('sw_grandTotal');
-      
-      if (cachedBuckets) {
-        setBuckets(JSON.parse(cachedBuckets));
-        setIsAppLoading(false); 
-      }
-      if (cachedTotals) setBucketTotals(JSON.parse(cachedTotals));
-      if (cachedGrandTotal) setGrandTotal(JSON.parse(cachedGrandTotal));
-    } catch (e) {
-      console.warn('Failed to load cache:', e);
-    }
-  }, []);
-  
-  const [isBucketLoading, setIsBucketLoading] = useState(false);
-  const [isRecovery, setIsRecovery] = useState(false);
-  const isMigrating = React.useRef(false);
-  const prevPendingTransfersCount = useRef(0);
 
   const { prefs, updatePreference } = useBucketPreferences(session?.user?.id);
 
@@ -113,14 +110,27 @@ export default function App() {
   }, [buckets, prefs]);
 
   const enhancedSelectedBucket = useMemo(() => {
-    if (!selectedBucket) return null;
-    return enhancedBuckets.find(b => b.id === selectedBucket.id) || selectedBucket;
-  }, [selectedBucket, enhancedBuckets]);
+    if (!urlBucketId) return null;
+    return enhancedBuckets.find(b => b.id === urlBucketId) || null;
+  }, [urlBucketId, enhancedBuckets]);
 
-  const pendingTransfers = useMemo(() => 
-    pendingShares.filter(s => s.access_level === 'transfer'),
-    [pendingShares]
-  );
+  // SWR Cache
+  useEffect(() => {
+    try {
+      const cachedBuckets = localStorage.getItem('sw_buckets');
+      const cachedTotals = localStorage.getItem('sw_bucketTotals');
+      const cachedGrandTotal = localStorage.getItem('sw_grandTotal');
+      
+      if (cachedBuckets) {
+        setBuckets(JSON.parse(cachedBuckets));
+        setIsAppLoading(false); 
+      }
+      if (cachedTotals) setBucketTotals(JSON.parse(cachedTotals));
+      if (cachedGrandTotal) setGrandTotal(JSON.parse(cachedGrandTotal));
+    } catch (e) {
+      console.warn('Failed to load cache:', e);
+    }
+  }, []);
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -143,12 +153,12 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Ensure scroll is at top when switching views or buckets
+  // Scroll restoration on route change
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [currentView, selectedBucket?.id]);
+  }, [location.pathname]);
 
-  const fetchData = useCallback(async (isInitial = false, bucketOverride?: Bucket | null) => {
+  const fetchData = useCallback(async (isInitial = false) => {
     if (!session) return;
     
     if (isInitial && buckets.length === 0) setIsAppLoading(true);
@@ -156,7 +166,6 @@ export default function App() {
 
     try {
       const userEmail = session.user.email;
-      const currentSelectedBucket = bucketOverride !== undefined ? bucketOverride : selectedBucket;
 
       const [bucketsRes, sharedWithRes, sharedByRes, catRes, orphanedRes, profilesRes] = await Promise.all([
         supabase.from('buckets').select('*').order('name', { ascending: true }),
@@ -200,7 +209,6 @@ export default function App() {
 
       let transactionsData: Transaction[] = [];
       if (activeBucketIds.length > 0) {
-        // THE N+1 FIX: Collapse 13+ per-bucket loops into 1 single smart query
         let query = supabase
           .from('transactions')
           .select('*, category:categories(*)')
@@ -208,11 +216,9 @@ export default function App() {
           .order('date', { ascending: false })
           .order('created_at', { ascending: false });
 
-        if (currentSelectedBucket) {
-          // If you are inside a bucket dashboard, ONLY ask for that specific bucket
-          query = query.eq('bucket_id', currentSelectedBucket.id).limit(loadedTxCount.current + 10);
+        if (urlBucketId) {
+          query = query.eq('bucket_id', urlBucketId).limit(loadedTxCount.current + 10);
         } else {
-          // If you are on the home screen, just grab a global pool of recent items
           query = query.in('bucket_id', activeBucketIds).limit(loadedTxCount.current + 50);
         }
 
@@ -256,9 +262,8 @@ export default function App() {
       setIsAppLoading(false);
       setIsDataLoading(false);
     }
-  }, [session, selectedBucket]);
+  }, [session, urlBucketId]);
 
-  // THE EVENT DEBOUNCER
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const debouncedFetchData = useCallback(() => {
@@ -267,48 +272,33 @@ export default function App() {
     }
     fetchTimeoutRef.current = setTimeout(() => {
       fetchData(false);
-    }, 1500); // Wait 1.5 seconds after the LAST database change before fetching
+    }, 1500);
   }, [fetchData]);
 
   useEffect(() => {
     if (session && !isRecovery) {
       fetchData(true);
       
-      // Real-time subscription using debounced fetch
       const transactionsChannel = supabase
         .channel('transactions-changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'transactions' },
-          () => debouncedFetchData()
-        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => debouncedFetchData())
         .subscribe();
 
       const categoriesChannel = supabase
         .channel('categories-changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'categories' },
-          () => debouncedFetchData()
-        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => debouncedFetchData())
         .subscribe();
 
       const sharesChannel = supabase
         .channel('shares-changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'bucket_shares' },
-          () => debouncedFetchData()
-        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_shares' }, () => debouncedFetchData())
         .subscribe();
 
       return () => {
         supabase.removeChannel(transactionsChannel);
         supabase.removeChannel(categoriesChannel);
         supabase.removeChannel(sharesChannel);
-        if (fetchTimeoutRef.current) {
-          clearTimeout(fetchTimeoutRef.current);
-        }
+        if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       };
     } else {
       setIsAppLoading(false);
@@ -400,10 +390,7 @@ export default function App() {
         .single();
 
       if (error) throw error;
-      
-      if (data) {
-        await logActivity(data.id, 'bucket_created', { name: data.name });
-      }
+      if (data) await logActivity(data.id, 'bucket_created', { name: data.name });
 
       setNewBucketName('');
       setIsAddingBucket(false);
@@ -416,7 +403,7 @@ export default function App() {
   };
 
   const handleExport = useCallback(async () => {
-    if (selectedBucket && selectedBucket.user_id !== session.user.id) {
+    if (enhancedSelectedBucket && enhancedSelectedBucket.user_id !== session.user.id) {
       console.error('Only the owner of this bucket can export its data.');
       return;
     }
@@ -424,11 +411,11 @@ export default function App() {
     let allTransactions: Transaction[] = [];
 
     try {
-      if (selectedBucket) {
+      if (enhancedSelectedBucket) {
         const { data, error } = await supabase
           .from('transactions')
           .select('*, category:categories(*)')
-          .eq('bucket_id', selectedBucket.id)
+          .eq('bucket_id', enhancedSelectedBucket.id)
           .order('date', { ascending: false });
 
         if (error) throw error;
@@ -438,10 +425,7 @@ export default function App() {
           .filter(b => b.user_id === session.user.id && !b.archived_at)
           .map(b => b.id);
 
-        if (ownedBucketIds.length === 0) {
-          console.error('No buckets available to export.');
-          return;
-        }
+        if (ownedBucketIds.length === 0) return;
 
         const { data, error } = await supabase
           .from('transactions')
@@ -453,10 +437,7 @@ export default function App() {
         allTransactions = data || [];
       }
 
-      if (allTransactions.length === 0) {
-        console.error('No data available to export.');
-        return;
-      }
+      if (allTransactions.length === 0) return;
 
       const exportData = allTransactions.map(t => ({
         Date: t.date.split('T')[0],
@@ -469,29 +450,22 @@ export default function App() {
         Status: t.deleted_at ? 'Deleted' : 'Active'
       }));
       
-      const fileName = selectedBucket 
-        ? `SpendWise_${selectedBucket.name}_${new Date().toISOString().split('T')[0]}.csv`
+      const fileName = enhancedSelectedBucket 
+        ? `SpendWise_${enhancedSelectedBucket.name}_${new Date().toISOString().split('T')[0]}.csv`
         : `SpendWise_MyBuckets_${new Date().toISOString().split('T')[0]}.csv`;
 
       downloadCSV(exportData, fileName);
     } catch (error) {
       console.error('Export failed:', error);
     }
-  }, [selectedBucket, session, buckets, enhancedBuckets]);
+  }, [enhancedSelectedBucket, session, buckets, enhancedBuckets]);
 
   const activeBuckets = useMemo(() => enhancedBuckets.filter(b => !b.archived_at), [enhancedBuckets]);
+  
   const activeGlobalTransactions = useMemo(() => {
     const activeBucketIds = new Set(activeBuckets.map(b => b.id));
     return transactions.filter(t => activeBucketIds.has(t.bucket_id));
   }, [transactions, activeBuckets]);
-
-  const activeTransactions = useMemo(() => selectedBucket 
-    ? transactions.filter(t => !t.deleted_at && t.bucket_id === selectedBucket.id)
-    : [], [transactions, selectedBucket]);
-    
-  const bucketCategories = useMemo(() => selectedBucket 
-    ? categories.filter(c => c.bucket_id === selectedBucket.id)
-    : [], [categories, selectedBucket]);
 
   const getOwnerEmail = useCallback((bucket: Bucket) => {
     const share = shares.find(s => s.bucket_id === bucket.id);
@@ -500,77 +474,6 @@ export default function App() {
     return '';
   }, [shares, session]);
 
-  const handleNavigate = useCallback((view: View) => {
-    if (view === 'buckets') setSelectedBucket(null);
-    setCurrentView(view);
-
-    // BACKEND PAGINATION PRO-MOVE: 
-    // EVERY view manages its own fetching now! NO heavy downloads ever!
-
-    if (view !== 'buckets') {
-      window.history.pushState({ view, bucketId: selectedBucket?.id }, '', `#${view}`);
-    } else {
-      window.history.pushState({ view: 'buckets', bucketId: null }, '', '#buckets');
-    }
-  }, [selectedBucket]);
-
-  const handleSelectBucket = useCallback((bucket: Bucket) => {
-    setSelectedBucket(bucket);
-    setCurrentView('dashboard');
-    window.history.pushState({ view: 'dashboard', bucketId: bucket.id }, '', '#dashboard');
-  }, []);
-
-  const handleEditTransaction = useCallback((t: Transaction) => {
-    setEditingTransaction(t);
-    setCurrentView('add-transaction');
-    window.history.pushState({ view: 'add-transaction', bucketId: selectedBucket?.id }, '', '#add-transaction');
-  }, [selectedBucket]);
-
-  const handleViewTransaction = useCallback((t: Transaction) => {
-    setSelectedTransaction(t);
-    setCurrentView('view-transaction');
-    window.history.pushState({ view: 'view-transaction', bucketId: selectedBucket?.id }, '', '#view-transaction');
-  }, [selectedBucket]);
-
-  useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      if (!event.state || !event.state.view || event.state.view === 'buckets') {
-        setSelectedBucket(null);
-        setCurrentView('buckets');
-      } else {
-        const view = event.state.view as View;
-        const bucketId = event.state.bucketId;
-        
-const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activity', 'categories'];        if (['dashboard', 'summary', 'analyze', 'activity', 'categories'].includes(view) && !bucketId) {
-          setSelectedBucket(null);
-          setCurrentView('buckets');
-          return;
-        }
-
-        setCurrentView(view);
-        if (bucketId) {
-          setBuckets(currentBuckets => {
-            const bucket = currentBuckets.find(b => b.id === bucketId);
-            if (bucket) {
-              setSelectedBucket(bucket);
-            } else if (['dashboard', 'summary', 'analyze', 'activity', 'categories'].includes(view)) {
-              setCurrentView('buckets');
-              setSelectedBucket(null);
-            }
-            return currentBuckets;
-          });
-        }
-      }
-    };
-
-    if (!window.location.hash) {
-      window.history.replaceState({ view: 'buckets', bucketId: null }, '', '#buckets');
-    }
-
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
   const handleRefresh = useCallback(async () => {
     await fetchData(false);
   }, [fetchData]);
@@ -578,20 +481,17 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
   const handleTransferOwnership = useCallback(async (email: string, bucketId: string) => {
     if (!session) return;
     try {
-      const { error } = await supabase
-        .from('bucket_shares')
-        .insert({
-          bucket_id: bucketId,
-          shared_by_email: session.user.email,
-          shared_with_email: email.trim().toLowerCase(),
-          access_level: 'transfer',
-          status: 'pending'
-        });
-
+      const { error } = await supabase.from('bucket_shares').insert({
+        bucket_id: bucketId,
+        shared_by_email: session.user.email,
+        shared_with_email: email.trim().toLowerCase(),
+        access_level: 'transfer',
+        status: 'pending'
+      });
       if (error) throw error;
       await logActivity(bucketId, 'ownership_transfer_initiated', { recipient: email });
       debouncedFetchData();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       throw err;
     }
@@ -599,15 +499,11 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
 
   const handleCancelTransfer = useCallback(async (shareId: string, bucketId: string) => {
     try {
-      const { error } = await supabase
-        .from('bucket_shares')
-        .delete()
-        .eq('id', shareId);
-
+      const { error } = await supabase.from('bucket_shares').delete().eq('id', shareId);
       if (error) throw error;
       await logActivity(bucketId, 'ownership_transfer_cancelled');
       debouncedFetchData();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       throw err;
     }
@@ -616,30 +512,21 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
   const handleAcceptTransfer = useCallback(async (share: BucketShare) => {
     if (!session) return;
     try {
-      const { error } = await supabase.rpc('accept_bucket_transfer', {
-        share_id: share.id
-      });
-
+      const { error } = await supabase.rpc('accept_bucket_transfer', { share_id: share.id });
       if (error) throw error;
-
       await logActivity(share.bucket_id, 'ownership_transfer_accepted', { previous_owner: share.shared_by_email });
       debouncedFetchData();
     } catch (err: any) {
-      console.error(err);
       throw new Error("Failed to accept transfer: " + err.message);
     }
   }, [session, debouncedFetchData]);
 
   const handleRejectTransfer = useCallback(async (shareId: string) => {
     try {
-      const { error } = await supabase.rpc('reject_bucket_transfer', {
-        share_id: shareId
-      });
-
+      const { error } = await supabase.rpc('reject_bucket_transfer', { share_id: shareId });
       if (error) throw error;
       debouncedFetchData();
     } catch (err: any) {
-      console.error(err);
       throw new Error("Failed to reject transfer: " + err.message);
     }
   }, [debouncedFetchData]);
@@ -656,10 +543,7 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
   if (!session || isRecovery) {
     return <AuthView 
       initialIsRecovery={isRecovery}
-      onRecoveryComplete={() => {
-        setIsRecovery(false);
-        window.location.hash = '';
-      }} 
+      onRecoveryComplete={() => setIsRecovery(false)} 
     />;
   }
 
@@ -668,8 +552,6 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
       <MemoizedSidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
-        currentView={currentView}
-        onNavigate={handleNavigate}
         onLogout={() => supabase.auth.signOut()}
         onExport={handleExport}
       />
@@ -677,41 +559,43 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
       <header className="sticky top-0 z-30 bg-white border-b-2 border-zinc-900 px-4 py-4">
         <div className="max-w-md mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <motion.button 
-              whileTap={{ scale: 0.9, x: 2, y: 2 }}
+            <button 
+              type="button"
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 border-2 border-zinc-900 bg-zinc-100 hover:bg-zinc-200 transition-all"
+              className="p-2 border-2 border-zinc-900 bg-zinc-100 hover:bg-zinc-200 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
             >
               <Menu className="w-5 h-5" />
-            </motion.button>
+            </button>
             <div className="flex flex-col">
-              <h1 className="text-xl font-black tracking-tight uppercase leading-none">SpendWise</h1>
+              <h1 className="text-xl font-black tracking-tight uppercase leading-none cursor-pointer" onClick={() => navigate('/')}>
+                SpendWise
+              </h1>
               {enhancedSelectedBucket && (
-                <span className="text-[10px] font-black uppercase text-zinc-400 mt-1">Bucket: <span className="normal-case">{enhancedSelectedBucket.name}</span></span>
+                <span className="text-[10px] font-black uppercase text-zinc-400 mt-1">
+                  Bucket: <span className="normal-case">{enhancedSelectedBucket.name}</span>
+                </span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {currentView === 'buckets' && (
-              <motion.button 
-                whileTap={{ scale: 0.9, x: 2, y: 2 }}
+            {location.pathname === '/' && (
+              <button 
+                type="button"
                 onClick={() => setIsAddingBucket(true)}
-                className="p-2 border-2 border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 transition-all"
+                className="p-2 border-2 border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
               >
                 <Plus className="w-5 h-5" />
-              </motion.button>
+              </button>
             )}
-            {selectedBucket && currentView !== 'buckets' && (
-              <motion.button 
-                whileTap={{ scale: 0.9, x: 2, y: 2 }}
-                onClick={() => {
-                  window.history.back();
-                }}
-                className="p-2 border-2 border-zinc-900 bg-white hover:bg-zinc-50 transition-all flex items-center gap-1"
+            {location.pathname !== '/' && (
+              <button 
+                type="button"
+                onClick={() => navigate(-1)}
+                className="p-2 border-2 border-zinc-900 bg-white hover:bg-zinc-50 transition-transform flex items-center gap-1 active:scale-95 active:translate-x-[2px] active:translate-y-[2px]"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span className="text-[10px] font-black uppercase">Back</span>
-              </motion.button>
+              </button>
             )}
           </div>
         </div>
@@ -719,8 +603,10 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
 
       <main className="max-w-md mx-auto p-4">
         <AnimatePresence mode="wait">
-          {currentView === 'buckets' && (
-            <div key="buckets">
+          <Routes location={location} key={location.pathname.split('/')[1] || '/'}>
+            
+            {/* Home Route */}
+            <Route path="/" element={
               <MemoizedBucketsHomeView 
                 buckets={enhancedBuckets}
                 bucketTotals={bucketTotals}
@@ -731,7 +617,7 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
                 userId={session.user.id}
                 userEmail={session.user.email}
                 profiles={profiles}
-                onSelectBucket={handleSelectBucket}
+                onSelectBucket={(bucket) => navigate(`/bucket/${bucket.id}/dashboard`)}
                 onRefresh={handleRefresh}
                 onAcceptTransfer={handleAcceptTransfer}
                 onRejectTransfer={handleRejectTransfer}
@@ -739,131 +625,122 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
                 onCancelTransfer={handleCancelTransfer}
                 onUpdatePreference={updatePreference}
               />
-            </div>
-          )}
-          {currentView === 'dashboard' && enhancedSelectedBucket && (
-            <motion.div
-              key="dashboard"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-            >
-              <MemoizedDashboardView 
-                transactions={activeTransactions} 
-                bucket={enhancedSelectedBucket}
-                shares={shares}
-                ownerEmail={getOwnerEmail(enhancedSelectedBucket)}
-                canEdit={enhancedSelectedBucket.user_id === session.user.id || shares.find(s => s.bucket_id === enhancedSelectedBucket.id && s.shared_with_email === session.user.email)?.access_level === 'edit'}
-                isOwner={enhancedSelectedBucket.user_id === session.user.id}
-                profiles={profiles}
-                isLoading={isDataLoading}
-                onTransferOwnership={handleTransferOwnership}
-                onCancelTransfer={handleCancelTransfer}
-                onAddClick={() => {
-                  setEditingTransaction(null);
-                  handleNavigate('add-transaction');
-                }}
-                onEditTransaction={handleEditTransaction}
-                onViewTransaction={handleViewTransaction}
-                onManageCategories={() => handleNavigate('categories')}
-                onViewActivity={() => handleNavigate('activity')}
-                onViewSummary={() => handleNavigate('summary')}
-                totalBalance={bucketTotals[enhancedSelectedBucket.id] || 0}
-              />
-            </motion.div>
-          )}
-          
-          {currentView === 'summary' && enhancedSelectedBucket && (
-            <motion.div
-              key="summary"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-            >
-              <MemoizedSummaryView 
-                bucket={enhancedSelectedBucket}
-                categories={bucketCategories}
-                onBack={() => window.history.back()}
-                onCategoryClick={(categoryId, startDate, endDate) => {
-                  setAnalyzeParams({ categoryId, startDate, endDate, autoRun: true });
-                  handleNavigate('analyze');
-                }}
-              />
-            </motion.div>
-          )}
+            } />
 
-          {currentView === 'add-transaction' && (
-            <motion.div
-              key="add-transaction"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-            >
-              <MemoizedAddTransactionView 
-                categories={bucketCategories} 
-                selectedBucket={enhancedSelectedBucket}
-                editingTransaction={editingTransaction}
-                onBack={() => {
-                  setEditingTransaction(null);
-                  window.history.back();
-                }}
-                onSuccess={() => {
-                  setEditingTransaction(null);
-                  window.history.back();
-                  debouncedFetchData();
-                }}
-                onOptimisticAdd={optimisticAddTransaction}
-                onOptimisticEdit={optimisticEditTransaction}
-                onOptimisticDelete={optimisticDeleteTransaction}
-              />
-            </motion.div>
-          )}
-          {currentView === 'categories' && (
-            <motion.div
-              key="categories"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-            >
-              <MemoizedCategoryManagerView 
-                categories={bucketCategories} 
-                selectedBucket={selectedBucket}
-                onBack={() => window.history.back()}
-                onSuccess={handleRefresh}
-              />
-            </motion.div>
-          )}
-          {currentView === 'view-transaction' && selectedTransaction && (
-            <motion.div
-              key="view-transaction"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-            >
-              <MemoizedTransactionDetailView 
-                transaction={selectedTransaction}
-                shares={shares}
-                profiles={profiles}
-                ownerEmail={getOwnerEmail(enhancedBuckets.find(b => b.id === selectedTransaction.bucket_id)!)}
-                onBack={() => {
-                  setSelectedTransaction(null);
-                  window.history.back();
-                }}
-                onEdit={() => {
-                  setEditingTransaction(selectedTransaction);
-                  window.history.replaceState({ view: 'add-transaction', bucketId: selectedBucket?.id }, '', '#add-transaction');
-                  setCurrentView('add-transaction');
-                }}
-              />
-            </motion.div>
-          )}
-          {currentView === 'analyze' && (
-            <motion.div
-              key="analyze"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-            >
+            {/* BUCKET-SPECIFIC ROUTES */}
+            <Route path="/bucket/:bucketId/dashboard" element={
+              <BucketRouteWrapper buckets={enhancedBuckets}>
+                {(bucket) => (
+                  <MemoizedDashboardView 
+                    transactions={transactions.filter(t => !t.deleted_at && t.bucket_id === bucket.id)} 
+                    bucket={bucket}
+                    shares={shares}
+                    ownerEmail={getOwnerEmail(bucket)}
+                    canEdit={bucket.user_id === session.user.id || shares.find(s => s.bucket_id === bucket.id && s.shared_with_email === session.user.email)?.access_level === 'edit'}
+                    profiles={profiles}
+                    isLoading={isDataLoading}
+                    totalBalance={bucketTotals[bucket.id] || 0}
+                    onEditTransaction={(t) => {
+                      setEditingTransaction(t);
+                      navigate(`/bucket/${bucket.id}/add-transaction`);
+                    }}
+                    onViewTransaction={(t) => {
+                      setSelectedTransaction(t);
+                      navigate(`/bucket/${bucket.id}/view-transaction`);
+                    }}/>
+                )}
+              </BucketRouteWrapper>
+            } />
+
+            <Route path="/bucket/:bucketId/summary" element={
+              <BucketRouteWrapper buckets={enhancedBuckets}>
+                {(bucket) => (
+                  <MemoizedSummaryView 
+                    bucket={bucket}
+                    categories={categories.filter(c => c.bucket_id === bucket.id)}
+                    onBack={() => navigate(-1)}
+                    onCategoryClick={(categoryId, startDate, endDate) => {
+                      setAnalyzeParams({ categoryId, startDate, endDate, autoRun: true });
+                      navigate('/analyze');
+                    }}
+                  />
+                )}
+              </BucketRouteWrapper>
+            } />
+
+            <Route path="/bucket/:bucketId/add-transaction" element={
+              <BucketRouteWrapper buckets={enhancedBuckets}>
+                {(bucket) => (
+                  <MemoizedAddTransactionView 
+                    categories={categories.filter(c => c.bucket_id === bucket.id)} 
+                    selectedBucket={bucket}
+                    editingTransaction={editingTransaction}
+                    onBack={() => {
+                      setEditingTransaction(null);
+                      navigate(-1);
+                    }}
+                    onSuccess={() => {
+                      setEditingTransaction(null);
+                      navigate(-1);
+                      debouncedFetchData();
+                    }}
+                    onOptimisticAdd={optimisticAddTransaction}
+                    onOptimisticEdit={optimisticEditTransaction}
+                    onOptimisticDelete={optimisticDeleteTransaction}
+                  />
+                )}
+              </BucketRouteWrapper>
+            } />
+
+            <Route path="/bucket/:bucketId/categories" element={
+              <BucketRouteWrapper buckets={enhancedBuckets}>
+                {(bucket) => (
+                  <MemoizedCategoryManagerView 
+                    categories={categories.filter(c => c.bucket_id === bucket.id)} 
+                    selectedBucket={bucket}
+                    onBack={() => navigate(-1)}
+                    onSuccess={handleRefresh}
+                  />
+                )}
+              </BucketRouteWrapper>
+            } />
+
+            <Route path="/bucket/:bucketId/view-transaction" element={
+              <BucketRouteWrapper buckets={enhancedBuckets}>
+                {(bucket) => selectedTransaction ? (
+                  <MemoizedTransactionDetailView 
+                    transaction={selectedTransaction}
+                    shares={shares}
+                    profiles={profiles}
+                    ownerEmail={getOwnerEmail(bucket)}
+                    onBack={() => {
+                      setSelectedTransaction(null);
+                      navigate(-1);
+                    }}
+                    onEdit={() => {
+                      setEditingTransaction(selectedTransaction);
+                      navigate(`/bucket/${bucket.id}/add-transaction`, { replace: true });
+                    }}
+                  />
+                ) : <Navigate to={`/bucket/${bucket.id}/dashboard`} replace />}
+              </BucketRouteWrapper>
+            } />
+
+            <Route path="/bucket/:bucketId/activity" element={
+              <BucketRouteWrapper buckets={enhancedBuckets}>
+                {(bucket) => (
+                  <MemoizedActivityLogView 
+                    bucket={bucket}
+                    profiles={profiles}
+                    onBack={() => navigate(-1)}
+                  />
+                )}
+              </BucketRouteWrapper>
+            } />
+
+
+            {/* GLOBAL ROUTES */}
+            <Route path="/analyze" element={
               <MemoizedAnalyzeView 
                 categories={categories}
                 buckets={activeBuckets}
@@ -874,119 +751,82 @@ const bucketSpecificViews: View[] = ['dashboard', 'summary', 'analyze', 'activit
                 initialParams={analyzeParams}
                 onBack={() => {
                   setAnalyzeParams(null);
-                  window.history.back();
+                  navigate(-1);
                 }}
-                onViewTransaction={handleViewTransaction}
+                onViewTransaction={(t) => {
+                  setSelectedTransaction(t);
+                  navigate(`/bucket/${t.bucket_id}/view-transaction`);
+                }}
               />
-            </motion.div>
-          )}
-          {currentView === 'recently-added' && (
-            <motion.div
-              key="recently-added"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-            >
+            } />
+
+            <Route path="/recently-added" element={
               <MemoizedRecentlyAddedView 
                 transactions={activeGlobalTransactions}
                 buckets={activeBuckets}
                 shares={shares}
                 profiles={profiles}
-                onBack={() => {
-                  window.history.back();
+                onBack={() => navigate(-1)}
+                onViewTransaction={(t) => {
+                  setSelectedTransaction(t);
+                  navigate(`/bucket/${t.bucket_id}/view-transaction`);
                 }}
-                onViewTransaction={handleViewTransaction}
               />
-            </motion.div>
-          )}
-          {currentView === 'deleted' && (
-            <motion.div
-              key="deleted"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-            >
+            } />
+
+            <Route path="/deleted" element={
               <MemoizedDeletedTransactionsView 
                 buckets={enhancedBuckets}
                 shares={shares}
                 profiles={profiles}
-                onBack={() => {
-                  if (selectedBucket) {
-                    window.history.back();
-                  } else {
-                    handleNavigate('buckets');
-                  }
-                }}
+                onBack={() => navigate(-1)}
                 onSuccess={handleRefresh}
-                onViewTransaction={handleViewTransaction}
+                onViewTransaction={(t) => {
+                  setSelectedTransaction(t);
+                  navigate(`/bucket/${t.bucket_id}/view-transaction`);
+                }}
               />
-            </motion.div>
-          )}
-          {currentView === 'archive' && (
-            <motion.div
-              key="archive"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-            >
+            } />
+
+            <Route path="/archive" element={
               <MemoizedArchiveView 
                 buckets={enhancedBuckets}
                 transactions={transactions}
-                onBack={() => window.history.back()}
+                onBack={() => navigate(-1)}
                 onRefresh={handleRefresh}
               />
-            </motion.div>
-          )}
-          {currentView === 'activity' && enhancedSelectedBucket && (
-            <motion.div
-              key="activity"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-            >
-              <MemoizedActivityLogView 
-                bucket={enhancedSelectedBucket}
-                profiles={profiles}
-                onBack={() => window.history.back()}
-              />
-            </motion.div>
-          )}
-          {currentView === 'profile' && (
-            <motion.div
-              key="profile"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-            >
+            } />
+
+            <Route path="/profile" element={
               <MemoizedProfileView 
                 session={session}
-                onBack={() => {
-                  window.history.back();
-                }}
+                onBack={() => navigate(-1)}
                 onUpdateName={(name) => {
                   setProfiles(prev => ({ ...prev, [session.user.id]: name }));
                 }}
               />
-            </motion.div>
-          )}
+            } />
+
+          </Routes>
         </AnimatePresence>
       </main>
 
       {/* Mobile Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 z-30">
         <button 
+          type="button"
           onClick={() => {
             setEditingTransaction(null);
             setSelectedTransaction(null);
-            handleNavigate('buckets');
+            navigate('/');
           }}
-          className="w-full bg-white border-t-2 border-zinc-900 px-4 py-6 flex justify-center items-center active:bg-zinc-50 transition-colors cursor-pointer"
+          className="w-full bg-white border-t-2 border-zinc-900 px-4 py-6 flex justify-center items-center active:bg-zinc-100 transition-colors cursor-pointer touch-manipulation"
         >
           <div className="max-w-md mx-auto flex justify-center items-center w-full">
             <span 
               className={cn(
                 "text-xs font-black uppercase tracking-wider transition-all",
-                currentView === 'buckets' ? "text-zinc-900 scale-110" : "text-zinc-400"
+                location.pathname === '/' ? "text-zinc-900 scale-110" : "text-zinc-400"
               )}
             >
               Home
