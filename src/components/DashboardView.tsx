@@ -183,10 +183,6 @@ export function DashboardView({
           <button 
             type="button"
             onClick={() => navigate(`/bucket/${bucket.id}/add-transaction`)} 
-            onPointerUp={(e) => {
-              e.preventDefault();
-              navigate(`/bucket/${bucket.id}/add-transaction`);
-            }}
             className="brutal-button flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
           >
             <Plus className="w-5 h-5" />
@@ -196,10 +192,6 @@ export function DashboardView({
         <button 
           type="button"
           onClick={() => navigate(`/bucket/${bucket.id}/activity`)} 
-          onPointerUp={(e) => {
-            e.preventDefault();
-            navigate(`/bucket/${bucket.id}/activity`);
-          }}
           className="brutal-button bg-zinc-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
         >
           <History className="w-5 h-5" />
@@ -209,10 +201,6 @@ export function DashboardView({
           <button 
             type="button"
             onClick={() => navigate(`/bucket/${bucket.id}/categories`)}
-            onPointerUp={(e) => {
-              e.preventDefault();
-              navigate(`/bucket/${bucket.id}/categories`);
-            }} 
             className="brutal-button bg-white text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
           >
             <Tag className="w-5 h-5" />
@@ -222,10 +210,6 @@ export function DashboardView({
         <button 
           type="button"
           onClick={() => navigate(`/bucket/${bucket.id}/summary`)}
-          onPointerUp={(e) => {
-            e.preventDefault();
-            navigate(`/bucket/${bucket.id}/summary`);
-          }} 
           className="brutal-button bg-sky-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-sky-200 active:bg-sky-300 transition-colors touch-manipulation"
         >
           <ClipboardList className="w-5 h-5" />
@@ -273,11 +257,6 @@ export function DashboardView({
                     t.is_optimistic && "opacity-60 border-dashed"
                   )}
                   onClick={() => !t.is_optimistic && onViewTransaction(t)}
-                  onPointerUp={(e) => {
-                    // Prevent slight scroll cancellation for viewing a transaction
-                    e.preventDefault();
-                    if (!t.is_optimistic) onViewTransaction(t);
-                  }}
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
                     <div className={cn(
@@ -340,12 +319,6 @@ export function DashboardView({
                       <button 
                         type="button"
                         onClick={(e) => {
-                          e.stopPropagation();
-                          onEditTransaction(t);
-                        }}
-                        onPointerUp={(e) => {
-                          // Prevent ghost click and stop it from triggering the parent row's view action
-                          e.preventDefault();
                           e.stopPropagation();
                           onEditTransaction(t);
                         }}
