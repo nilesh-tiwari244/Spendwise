@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
 import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay } from '../lib/utils';
+import { fetchAllRows } from '../lib/fetchAll';
 import { ArrowLeft, Search as SearchIcon, Tag, X, PieChart, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -16,6 +17,7 @@ interface AnalyzeViewProps {
     startDate?: string;
     endDate?: string;
     autoRun?: boolean;
+     bucketId?: string;
   } | null;
   onBack: () => void;
   onViewTransaction: (transaction: Transaction) => void;
@@ -43,8 +45,13 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   const [endDate, setEndDate] = useState(initialParams?.endDate || '');
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
-  const [selectedBucketIds, setSelectedBucketIds] = useState<string[]>(selectedBucket ? [selectedBucket.id] : []);
-  
+  const [selectedBucketIds, setSelectedBucketIds] = useState<string[]>(
+    selectedBucket
+      ? [selectedBucket.id]
+      : initialParams?.bucketId
+        ? [initialParams.bucketId]
+        : []
+  );
   // Results State
   const [isAnalyzed, setIsAnalyzed] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -79,10 +86,10 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   }, []);
 
   // Database Fetch Logic (Runs only on button click)
-  const runAnalysis = async () => {
+const runAnalysis = async () => {
     setIsAnalyzing(true);
-    
-    try {
+
+    const buildQuery = () => {
       let query = supabase
         .from('transactions')
         .select('*, category:categories(*)')
@@ -97,21 +104,34 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
       }
 
       // Apply Exact Filters
-      if (categoryId) query = query.eq('category_id', categoryId);
+      // The dropdown dedupes categories by name, but each bucket has its own
+      // category row. Expand the picked id to every id with the same name so
+      // the filter matches what the label promises. Safe for the Summary
+      // drill-down because that path pre-selects a single bucket.
+      if (categoryId) {
+        const selectedName = categories.find(c => c.id === categoryId)?.name;
+        const matchingIds = selectedName
+          ? categories
+              .filter(c => c.name.toLowerCase() === selectedName.toLowerCase())
+              .map(c => c.id)
+          : [categoryId];
+        query = query.in('category_id', matchingIds);
+      }
       if (startDate) query = query.gte('date', startDate);
       if (endDate) query = query.lte('date', endDate + 'T23:59:59');
       if (minAmount) query = query.gte('amount', minAmount);
       if (maxAmount) query = query.lte('amount', maxAmount);
       if (keyword) query = query.ilike('remarks', `%${keyword}%`);
 
-      const { data, error } = await query
+      return query
         .order('date', { ascending: false })
         .order('created_at', { ascending: false })
-        .limit(2000); // Prevents crashing if too broad, perfect for printing
+        .order('id', { ascending: false });
+    };
 
-      if (error) throw error;
-      
-      setAnalyzedTransactions(data || []);
+    try {
+      const data = await fetchAllRows<Transaction>(buildQuery);
+      setAnalyzedTransactions(data);
       setIsAnalyzed(true);
     } catch (err) {
       console.error('Analysis failed:', err);

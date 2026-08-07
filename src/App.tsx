@@ -20,6 +20,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn, downloadCSV } from './lib/utils';
 import { logActivity } from './lib/activity';
 import { useBucketPreferences } from './lib/preferences';
+import { fetchAllRows } from './lib/fetchAll';
 
 // Memoize sub-components for performance
 const MemoizedBucketsHomeView = React.memo(BucketsHomeView);
@@ -38,6 +39,7 @@ const MemoizedSidebar = React.memo(Sidebar);
 
 type AnalyzeParams = {
   categoryId?: string;
+  bucketId?: string;
   startDate?: string;
   endDate?: string;
   autoRun?: boolean;
@@ -60,6 +62,7 @@ export default function App() {
 
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   
   // We keep these in global state for now to minimize breaking changes during transition
   const [analyzeParams, setAnalyzeParams] = useState<AnalyzeParams>(null);
@@ -403,52 +406,70 @@ export default function App() {
   };
 
   const handleExport = useCallback(async () => {
+    if (isExporting) return;
+
     if (enhancedSelectedBucket && enhancedSelectedBucket.user_id !== session.user.id) {
       console.error('Only the owner of this bucket can export its data.');
       return;
     }
 
-    let allTransactions: Transaction[] = [];
-
-    try {
-      if (enhancedSelectedBucket) {
-        const { data, error } = await supabase
-          .from('transactions')
-          .select('*, category:categories(*)')
-          .eq('bucket_id', enhancedSelectedBucket.id)
-          .order('date', { ascending: false });
-
-        if (error) throw error;
-        allTransactions = data || [];
-      } else {
-        const ownedBucketIds = buckets
-          .filter(b => b.user_id === session.user.id && !b.archived_at)
+    const bucketIds = enhancedSelectedBucket
+      ? [enhancedSelectedBucket.id]
+      : buckets
+          .filter(b => b.user_id === session.user.id)
           .map(b => b.id);
 
-        if (ownedBucketIds.length === 0) return;
+    if (bucketIds.length === 0) return;
 
-        const { data, error } = await supabase
+    setIsExporting(true);
+
+    try {
+      // Paginated: Supabase caps a single response at db-max-rows (default 1000).
+      const allTransactions = await fetchAllRows<Transaction>(() =>
+        supabase
           .from('transactions')
           .select('*, category:categories(*)')
-          .in('bucket_id', ownedBucketIds)
-          .order('date', { ascending: false });
-
-        if (error) throw error;
-        allTransactions = data || [];
-      }
+          .in('bucket_id', bucketIds)
+          .order('date', { ascending: false })
+          .order('id', { ascending: false })
+      );
 
       if (allTransactions.length === 0) return;
+const splitTimestamp = (ts: string | null | undefined) => {
+        if (!ts) return { date: '', time: '' };
+        const d = new Date(ts);
+        return {
+          date: d.toLocaleDateString('en-CA'),                    // YYYY-MM-DD
+          time: d.toLocaleTimeString('en-GB', { hour12: false })  // HH:MM:SS
+        };
+      };
 
-      const exportData = allTransactions.map(t => ({
-        Date: t.date.split('T')[0],
-        Type: t.type,
-        Amount: t.amount,
-        Bucket: enhancedBuckets.find(b => b.id === t.bucket_id)?.name || 'Unknown',
-        Category: (t as any).category?.name || '',
-        Remarks: t.remarks,
-        'Added By': t.last_edited_by || 'Unknown',
-        Status: t.deleted_at ? 'Deleted' : 'Active'
-      }));
+      const exportData = allTransactions.map(t => {
+        const bucket = enhancedBuckets.find(b => b.id === t.bucket_id);
+        const created = splitTimestamp(t.created_at);
+        const updated = splitTimestamp(t.updated_at);
+        const deleted = splitTimestamp(t.deleted_at);
+
+        return {
+          Date: new Date(t.date).toLocaleDateString('en-CA'),
+          Type: t.type,
+          Amount: t.amount,
+          'Signed Amount': t.type === 'Debit' ? -Math.abs(t.amount) : Math.abs(t.amount),
+          Bucket: bucket?.name || 'Unknown',
+          Archived: bucket?.archived_at ? 'Yes' : 'No',
+          Category: (t as any).category?.name || '',
+          Remarks: t.remarks,
+          Attachment: t.file_url || '',
+          'Last Edited By': t.last_edited_by || 'Unknown',
+          'Created On': created.date,
+          'Created At': created.time,
+          'Updated On': updated.date,
+          'Updated At': updated.time,
+          Status: t.deleted_at ? 'Deleted' : 'Active',
+          'Deleted On': deleted.date,
+          'Deleted At': deleted.time
+        };
+      });
       
       const fileName = enhancedSelectedBucket 
         ? `SpendWise_${enhancedSelectedBucket.name}_${new Date().toISOString().split('T')[0]}.csv`
@@ -457,8 +478,10 @@ export default function App() {
       downloadCSV(exportData, fileName);
     } catch (error) {
       console.error('Export failed:', error);
+    } finally {
+      setIsExporting(false);
     }
-  }, [enhancedSelectedBucket, session, buckets, enhancedBuckets]);
+  }, [enhancedSelectedBucket, session, buckets, enhancedBuckets, isExporting]);
 
   const activeBuckets = useMemo(() => enhancedBuckets.filter(b => !b.archived_at), [enhancedBuckets]);
   
@@ -554,6 +577,7 @@ export default function App() {
         onClose={() => setIsSidebarOpen(false)} 
         onLogout={() => supabase.auth.signOut()}
         onExport={handleExport}
+        isExporting={isExporting}
       />
 
       <header className="sticky top-0 z-30 bg-white border-b-2 border-zinc-900 px-4 py-4">
@@ -660,7 +684,7 @@ export default function App() {
                     categories={categories.filter(c => c.bucket_id === bucket.id)}
                     onBack={() => navigate(-1)}
                     onCategoryClick={(categoryId, startDate, endDate) => {
-                      setAnalyzeParams({ categoryId, startDate, endDate, autoRun: true });
+                      setAnalyzeParams({ categoryId, bucketId: bucket.id, startDate, endDate, autoRun: true });
                       navigate('/analyze');
                     }}
                   />

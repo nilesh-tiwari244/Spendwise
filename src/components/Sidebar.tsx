@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom'; //[cite: 9]
-import { X, Trash2, LogOut, PieChart, Download, Clock, Archive, UserCircle } from 'lucide-react'; //[cite: 14]
+import { X, Trash2, LogOut, PieChart, Download, Clock, Archive, UserCircle, Loader2 } from 'lucide-react'; //[cite: 14]
 import { cn } from '../lib/utils'; //[cite: 14]
 import { motion, AnimatePresence } from 'motion/react'; //[cite: 14]
 
@@ -8,10 +8,11 @@ interface SidebarProps {
   isOpen: boolean; //[cite: 14]
   onClose: () => void; //[cite: 14]
   onLogout: () => void; //[cite: 14]
-  onExport: () => void; //[cite: 14]
+  onExport: () => void | Promise<void>; //[cite: 14]
+  isExporting?: boolean;
 }
 
-export function Sidebar({ isOpen, onClose, onLogout, onExport }: SidebarProps) {
+export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = false }: SidebarProps) {
   // Map items to actual application URL paths[cite: 9]
   const menuItems = [
     { path: '/analyze', label: 'Analyze', icon: PieChart }, //[cite: 9, 14]
@@ -19,6 +20,17 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport }: SidebarProps) {
     { path: '/archive', label: 'Archive', icon: Archive }, //[cite: 9, 14]
     { path: '/deleted', label: 'Recycle Bin', icon: Trash2 }, //[cite: 9, 14]
   ];
+
+  // Keep the drawer open while the export runs so the user can see progress,
+  // then close once the CSV has been handed off to the browser.
+  const handleExportClick = async () => {
+    if (isExporting) return;
+    try {
+      await onExport();
+    } finally {
+      onClose();
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -69,15 +81,23 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport }: SidebarProps) {
               
               {/* Export Button uses motion since it triggers a local function instead of routing */}
               <motion.button
-                whileTap={{ scale: 0.95, x: 2, y: 2 }} //[cite: 14]
-                onClick={() => {
-                  onExport(); //[cite: 14]
-                  onClose(); //[cite: 14]
-                }}
-                className="w-full flex items-center gap-4 p-4 border-2 border-zinc-900 bg-zinc-50 text-zinc-900 font-black uppercase text-sm hover:bg-zinc-100 transition-all" //[cite: 14]
+                whileTap={isExporting ? undefined : { scale: 0.95, x: 2, y: 2 }} //[cite: 14]
+                onClick={handleExportClick}
+                disabled={isExporting}
+                aria-busy={isExporting}
+                className={cn(
+                  "w-full flex items-center gap-4 p-4 border-2 border-zinc-900 font-black uppercase text-sm transition-all", //[cite: 14]
+                  isExporting
+                    ? "bg-zinc-200 text-zinc-500 cursor-not-allowed"
+                    : "bg-zinc-50 text-zinc-900 hover:bg-zinc-100" //[cite: 14]
+                )}
               >
-                <Download className="w-5 h-5" /> {/*[cite: 14] */}
-                Export Data {/*[cite: 14] */}
+                {isExporting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Download className="w-5 h-5" /> //[cite: 14]
+                )}
+                {isExporting ? 'Exporting...' : 'Export Data'} {/*[cite: 14] */}
               </motion.button>
             </nav>
 
