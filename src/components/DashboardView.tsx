@@ -20,17 +20,17 @@ function TransactionSkeleton() {
       {[1, 2, 3, 4, 5].map((i) => (
         <div key={i} className="brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-3 animate-pulse bg-white">
           <div className="flex items-start gap-3 flex-1">
-            <div className="w-10 h-10 border-2 border-zinc-100 bg-zinc-50 flex-shrink-0 mt-1" />
+            <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex-shrink-0 mt-1" />
             <div className="flex-1 space-y-2">
               <div className="flex gap-2">
-                <div className="h-4 w-16 bg-zinc-100 border border-zinc-50" />
-                <div className="h-4 w-24 bg-zinc-50" />
+                <div className="h-4 w-16 rounded-full bg-zinc-100" />
+                <div className="h-4 w-24 rounded-full bg-zinc-50" />
               </div>
-              <div className="h-5 w-3/4 bg-zinc-100" />
-              <div className="h-3 w-1/2 bg-zinc-50" />
+              <div className="h-5 w-3/4 rounded-full bg-zinc-100" />
+              <div className="h-3 w-1/2 rounded-full bg-zinc-50" />
             </div>
           </div>
-          <div className="w-20 h-6 bg-zinc-100 mt-1" />
+          <div className="w-20 h-6 rounded-full bg-zinc-100 mt-1" />
         </div>
       ))}
     </div>
@@ -229,15 +229,15 @@ export function DashboardView({
 
       {/* Transactions List */}
       <section className="space-y-2">
-        <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2">
-          Recent Transactions — <span className="text-zinc-500">{bucket.name}</span>
+        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 pb-1">
+          Recent Transactions — <span className="text-zinc-400">{bucket.name}</span>
         </h3>
-        
+
         {localTransactions.length === 0 ? (
           isLoading ? (
             <TransactionSkeleton />
           ) : (
-            <div className="text-center py-12 brutal-card bg-zinc-100 border-dashed">
+            <div className="text-center py-12 rounded-2xl bg-zinc-100">
               <p className="text-xs font-bold uppercase text-zinc-400">No transactions yet</p>
             </div>
           )
@@ -263,14 +263,14 @@ export function DashboardView({
                 <div
                   key={t.id}
                   className={cn(
-                    "brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer hover:bg-zinc-50 active:bg-zinc-100 transition-colors touch-manipulation",
-                    t.is_optimistic && "opacity-60 border-dashed"
+                    "brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer hover:shadow-md active:bg-zinc-100 transition-all touch-manipulation",
+                    t.is_optimistic && "opacity-60"
                   )}
                   onClick={() => !t.is_optimistic && onViewTransaction(t)}
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
                     <div className={cn(
-                      "w-14 h-[72px] border-2 border-zinc-200 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                      "w-14 h-[72px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                       t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                     )}>
                       <span className="text-base">{dateParts.day}</span>
@@ -281,7 +281,7 @@ export function DashboardView({
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2">
-                          <div className="border-2 border-zinc-200 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
+                          <div className="rounded-full px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-zinc-100">
                             {t.category?.name || '---'}
                           </div>
                           {t.file_url && <Paperclip className="w-3 h-3 text-zinc-400 flex-shrink-0" />}
@@ -332,7 +332,7 @@ export function DashboardView({
                           e.stopPropagation();
                           onEditTransaction(t);
                         }}
-                        className="w-10 h-10 border-2 border-zinc-200 bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)] active:bg-zinc-200 touch-manipulation"
+                        className="w-10 h-10 rounded-full bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-sm active:bg-zinc-200 touch-manipulation"
                       >
                         <Edit2 className="w-5 h-5 text-zinc-900" />
                       </button>

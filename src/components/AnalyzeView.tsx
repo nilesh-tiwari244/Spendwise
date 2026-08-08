@@ -310,7 +310,7 @@ const runAnalysis = async () => {
         </h2>
       </div>
 
-      <div className="bg-white border-2 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] p-4 space-y-4 print:hidden">
+      <div className="bg-white rounded-3xl shadow-sm p-4 space-y-4 print:hidden">
         {!selectedBucket && (
           <div>
             <label className="block text-[10px] font-black uppercase mb-2 text-zinc-400">Buckets</label>
@@ -318,8 +318,8 @@ const runAnalysis = async () => {
               <button
                 onClick={() => setSelectedBucketIds([])}
                 className={cn(
-                  "px-3 py-1 text-[10px] font-black uppercase border-2 border-zinc-200 transition-all",
-                  selectedBucketIds.length === 0 ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
+                  "px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all",
+                  selectedBucketIds.length === 0 ? "bg-zinc-900 text-white shadow-sm" : "bg-zinc-100 text-zinc-600"
                 )}
               >
                 All
@@ -329,8 +329,8 @@ const runAnalysis = async () => {
                   key={b.id}
                   onClick={() => toggleBucket(b.id)}
                   className={cn(
-                    "px-3 py-1 text-[10px] font-black uppercase border-2 border-zinc-200 transition-all",
-                    selectedBucketIds.includes(b.id) ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
+                    "px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all",
+                    selectedBucketIds.includes(b.id) ? "bg-zinc-900 text-white shadow-sm" : "bg-zinc-100 text-zinc-600"
                   )}
                 >
                   {b.name}
@@ -369,9 +369,9 @@ const runAnalysis = async () => {
             <button
               type="button"
               onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
-              className="absolute right-0 top-0 bottom-0 px-2 border-l-2 border-zinc-200 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-900 transition-colors"
             >
-              <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", isCategoryDropdownOpen && "rotate-180")} />
+              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", isCategoryDropdownOpen && "rotate-180")} />
             </button>
           </div>
 
@@ -381,7 +381,7 @@ const runAnalysis = async () => {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="absolute z-50 left-0 right-0 mt-2 bg-white border-4 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] max-h-60 overflow-y-auto"
+                className="absolute z-50 left-0 right-0 mt-2 bg-white rounded-2xl shadow-lg max-h-60 overflow-y-auto overflow-hidden"
               >
                 <button
                   type="button"
@@ -497,15 +497,15 @@ const runAnalysis = async () => {
           className="space-y-6 print:hidden"
         >
           <div className="space-y-4">
-            <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
-              <h3 className="text-xs font-black uppercase tracking-widest">Analysis Result</h3>
+            <div className="flex justify-between items-center pb-1">
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Analysis Result</h3>
               <span className="text-[10px] font-black uppercase text-zinc-400">{analyzedTransactions.length} transactions</span>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
               <div className="brutal-card bg-green-50 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-green-100 border-2 border-zinc-200 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-2xl bg-green-100 flex items-center justify-center">
                     <TrendingUp className="w-5 h-5 text-green-600" />
                   </div>
                   <div>
@@ -517,7 +517,7 @@ const runAnalysis = async () => {
 
               <div className="brutal-card bg-red-50 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-red-100 border-2 border-zinc-200 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center">
                     <TrendingDown className="w-5 h-5 text-red-600" />
                   </div>
                   <div>
@@ -527,7 +527,7 @@ const runAnalysis = async () => {
                 </div>
               </div>
 
-              <div 
+              <div
                 className={cn(
                   "brutal-card p-6 flex items-center justify-between transition-colors duration-300",
                   selectedBucket?.color ? getContrastColor(selectedBucket.color) : "bg-zinc-900 text-white"
@@ -536,8 +536,8 @@ const runAnalysis = async () => {
               >
                 <div className="flex items-center gap-3">
                   <div className={cn(
-                    "w-10 h-10 border-2 flex items-center justify-center",
-                    selectedBucket?.color 
+                    "w-10 h-10 rounded-2xl border-2 flex items-center justify-center",
+                    selectedBucket?.color
                       ? (getContrastColor(selectedBucket.color) === 'text-white' ? "bg-white/10 border-white/20" : "bg-black/5 border-black/10")
                       : "bg-zinc-800 border-white/20"
                   )}>
@@ -554,8 +554,8 @@ const runAnalysis = async () => {
 
           {runningBalance && runningBalance.points.length >= 2 && (
             <div className="space-y-3">
-              <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
-                <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
+              <div className="flex justify-between items-center pb-1">
+                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2">
                   <Scale className="w-4 h-4" />
                   Running Balance
                 </h3>
@@ -571,13 +571,13 @@ const runAnalysis = async () => {
           )}
 
           <div className="space-y-4">
-            <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
-              <h3 className="text-xs font-black uppercase tracking-widest">Transactions</h3>
+            <div className="flex justify-between items-center pb-1">
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Transactions</h3>
             </div>
 
             <div className="space-y-3">
               {analyzedTransactions.length === 0 ? (
-                <div className="text-center py-8 brutal-card bg-zinc-100 border-dashed">
+                <div className="text-center py-8 rounded-2xl bg-zinc-100">
                   <p className="text-[10px] font-black uppercase text-zinc-400">No transactions match these filters</p>
                 </div>
               ) : (
@@ -616,7 +616,7 @@ const runAnalysis = async () => {
                     >
                       <div className="flex items-start gap-2 min-w-0 flex-1">
                         <div className={cn(
-                          "w-14 h-[72px] border-2 border-zinc-200 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                          "w-14 h-[72px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                           t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                         )}>
                           <span className="text-base">{dateParts.day}</span>
@@ -627,10 +627,10 @@ const runAnalysis = async () => {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                              <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
+                              <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 rounded-full">
                                 {bucket?.name || 'No Bucket'}
                               </span>
-                              <div className="border-2 border-zinc-200 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-500 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
+                              <div className="rounded-full px-2 py-0.5 inline-block text-[10px] font-black text-zinc-500 bg-zinc-100">
                                 {t.category?.name || '---'}
                               </div>
                             </div>
@@ -692,7 +692,7 @@ const runAnalysis = async () => {
                 Print Report
               </button>
             ) : (
-              <div className="bg-amber-50 border-2 border-amber-500 p-4 flex gap-3">
+              <div className="bg-amber-50 rounded-2xl p-4 flex gap-3">
                 <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
                 <p className="text-[10px] font-bold uppercase text-amber-700 leading-tight">
                   Printing is disabled because this report includes data from shared buckets. You can only print reports for data you own.

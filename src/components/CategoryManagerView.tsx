@@ -136,7 +136,7 @@ export function CategoryManagerView({ categories, selectedBucket, onBack, onSucc
       )}
 
       <div className="space-y-3">
-        <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2">Existing Categories</h3>
+        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 pb-1">Existing Categories</h3>
         <div className="grid grid-cols-1 gap-2">
           {categories.map((c) => (
             <div key={c.id} className="brutal-card pl-1 pr-4 py-1 flex items-center justify-between bg-white">

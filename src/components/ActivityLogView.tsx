@@ -97,7 +97,7 @@ export function ActivityLogView({ bucket, profiles, onBack }: ActivityLogViewPro
         </div>
       </div>
 
-      <div className="bg-amber-50 border-2 border-amber-500 p-3 flex gap-2">
+      <div className="bg-amber-50 rounded-2xl p-3 flex gap-2">
         <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
         <p className="text-[9px] font-bold uppercase text-amber-700 leading-tight">
           To save database space, only the last 20 activity logs are kept. Older logs are automatically deleted.

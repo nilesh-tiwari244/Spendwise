@@ -112,7 +112,7 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
             id="all-checkbox"
             checked={isAllChecked}
             onChange={handleAllChange}
-            className="w-5 h-5 border-2 border-zinc-200 rounded-none accent-zinc-900"
+            className="w-5 h-5 rounded-md accent-zinc-900"
           />
           <label htmlFor="all-checkbox" className="font-black uppercase text-sm cursor-pointer">
             All Time
@@ -164,17 +164,17 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
 
       <div className="brutal-card bg-white overflow-hidden">
         {/* Restored py-1 for compact header */}
-        <div className="grid grid-cols-2 bg-zinc-100 border-b-2 border-zinc-200 pl-1 pr-4 py-1">
+        <div className="grid grid-cols-2 bg-zinc-100 pl-1 pr-4 py-2">
           <div className="text-xs font-black uppercase tracking-widest pl-2">Categories</div>
           <div className="text-xs font-black uppercase tracking-widest text-right">Total</div>
         </div>
-        
+
         {isLoading ? (
           <div className="flex justify-center items-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
           </div>
         ) : (
-          <div className="divide-y-2 divide-zinc-100">
+          <div className="divide-y divide-zinc-100">
             {sortedCategoryTotals.length === 0 ? (
               <div className="p-6 text-center text-sm font-bold text-zinc-500 uppercase">
                 No categories found

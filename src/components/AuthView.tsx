@@ -78,7 +78,7 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
         </h2>
 
         {isForgotPassword && !message && (
-          <div className="mb-6 p-3 bg-zinc-100 border-2 border-zinc-200 flex gap-2 items-start">
+          <div className="mb-6 p-3 rounded-2xl bg-zinc-100 flex gap-2 items-start">
             <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <p className="text-[10px] font-bold uppercase leading-tight">
               Note: If the email link points to "localhost", replace it with this site's URL in your browser.

@@ -717,13 +717,13 @@ const splitTimestamp = (ts: string | null | undefined) => {
         isExporting={isExporting}
       />
 
-      <header className="sticky top-0 z-30 bg-white border-b-2 border-zinc-200 px-4 py-4">
+      <header className="sticky top-0 z-30 bg-white shadow-sm px-4 py-4">
         <div className="max-w-md mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <button 
+            <button
               type="button"
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 border-2 border-zinc-200 bg-zinc-100 hover:bg-zinc-200 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
+              className="p-3 rounded-2xl bg-zinc-100 shadow-sm hover:shadow-md hover:bg-zinc-200 active:scale-90 transition-all"
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -740,19 +740,19 @@ const splitTimestamp = (ts: string | null | undefined) => {
           </div>
           <div className="flex items-center gap-2">
             {location.pathname === '/' && (
-              <button 
+              <button
                 type="button"
                 onClick={() => setIsAddingBucket(true)}
-                className="p-2 border-2 border-zinc-200 bg-zinc-900 text-white hover:bg-zinc-800 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
+                className="p-3 rounded-2xl bg-zinc-900 text-white shadow-sm hover:shadow-md hover:bg-zinc-800 active:scale-90 transition-all"
               >
                 <Plus className="w-5 h-5" />
               </button>
             )}
             {location.pathname !== '/' && (
-              <button 
+              <button
                 type="button"
                 onClick={() => navigate(-1)}
-                className="p-2 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-transform flex items-center gap-1 active:scale-95 active:translate-x-[2px] active:translate-y-[2px]"
+                className="p-3 rounded-2xl bg-white shadow-sm hover:shadow-md flex items-center gap-1 active:scale-95 transition-all"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span className="text-[10px] font-black uppercase">Back</span>
@@ -985,7 +985,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
             setSelectedTransaction(null);
             navigate('/');
           }}
-          className="w-full bg-white border-t-2 border-zinc-200 px-4 py-6 flex justify-center items-center active:bg-zinc-100 transition-colors cursor-pointer touch-manipulation"
+          className="w-full bg-white shadow-[0_-2px_8px_rgba(0,0,0,0.04)] px-4 py-6 flex justify-center items-center active:bg-zinc-100 transition-colors cursor-pointer touch-manipulation"
         >
           <div className="max-w-md mx-auto flex justify-center items-center w-full">
             <span 
@@ -1015,11 +1015,11 @@ const splitTimestamp = (ts: string | null | undefined) => {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white border-4 border-zinc-200 z-50 p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.12)]"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white rounded-3xl z-50 p-6 shadow-xl"
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-black uppercase tracking-tighter">New Bucket</h2>
-                <button onClick={() => setIsAddingBucket(false)} className="p-1 border-2 border-zinc-200 bg-zinc-100">
+                <button onClick={() => setIsAddingBucket(false)} className="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200 transition-colors">
                   <X className="w-4 h-4" />
                 </button>
               </div>

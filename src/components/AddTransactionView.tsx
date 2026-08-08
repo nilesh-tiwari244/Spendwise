@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2, Camera, X, ChevronDown, Search } from 'lucide-react
 import { cn } from '../lib/utils';
 import { ConfirmationModal } from './ConfirmationModal';
 import { logActivity } from '../lib/activity';
+import { compressImage } from '../lib/imageCompression';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface AddTransactionViewProps {
@@ -50,14 +51,21 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isCompressingFile, setIsCompressingFile] = useState(false);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
+    if (!selectedFile) return;
+
+    setIsCompressingFile(true);
+    try {
+      const compressed = await compressImage(selectedFile);
+      setFile(compressed);
       const reader = new FileReader();
       reader.onloadend = () => setPreview(reader.result as string);
-      reader.readAsDataURL(selectedFile);
+      reader.readAsDataURL(compressed);
+    } finally {
+      setIsCompressingFile(false);
     }
   };
 
@@ -214,7 +222,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <ConfirmationModal
         isOpen={showDeleteConfirm}
         title="Delete Transaction?"
@@ -226,27 +234,27 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
         onCancel={() => setShowDeleteConfirm(false)}
       />
       <div className="flex items-center gap-4">
-        <button onClick={onBack} className="p-2 brutal-card bg-white">
+        <button onClick={onBack} className="p-3 rounded-2xl bg-white shadow-md hover:shadow-lg transition-shadow">
           <ArrowLeft className="w-5 h-5" />
         </button>
         <h2 className="text-2xl font-black uppercase tracking-tighter">Add Transaction</h2>
       </div>
 
       {!selectedBucket && !editingTransaction ? (
-        <div className="text-center py-12 brutal-card bg-zinc-100 border-dashed">
+        <div className="text-center py-12 rounded-2xl bg-white shadow-md">
           <p className="text-xs font-bold uppercase text-zinc-400">Please select a bucket first</p>
           <button onClick={onBack} className="mt-4 text-[10px] font-black uppercase underline">Go Back</button>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Type Toggle */}
-          <div className="flex border-2 border-zinc-200">
+          <div className="flex rounded-full bg-zinc-100 p-1">
             <button
               type="button"
               onClick={() => setType('Debit')}
               className={cn(
-                "flex-1 py-3 font-black uppercase text-sm transition-all",
-                type === 'Debit' ? "bg-red-500 text-white" : "bg-white text-zinc-900"
+                "flex-1 py-3 rounded-full font-black uppercase text-sm transition-all",
+                type === 'Debit' ? "bg-red-100 text-red-600 shadow-sm" : "text-zinc-400"
               )}
             >
               Debit
@@ -255,8 +263,8 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
               type="button"
               onClick={() => setType('Credit')}
               className={cn(
-                "flex-1 py-3 font-black uppercase text-sm transition-all",
-                type === 'Credit' ? "bg-green-500 text-white" : "bg-white text-zinc-900"
+                "flex-1 py-3 rounded-full font-black uppercase text-sm transition-all",
+                type === 'Credit' ? "bg-green-100 text-green-600 shadow-sm" : "text-zinc-400"
               )}
             >
               Credit
@@ -265,33 +273,33 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-black uppercase mb-1">Amount</label>
+              <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Amount</label>
               <input
                 type="number"
                 step="0.01"
                 required
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="brutal-input"
+                className="w-full rounded-2xl bg-white shadow-sm px-4 py-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
                 placeholder="0.00"
               />
             </div>
             <div>
-              <label className="block text-xs font-black uppercase mb-1">Date</label>
+              <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Date</label>
               <input
                 type="date"
                 required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="brutal-input"
+                className="w-full rounded-2xl bg-white shadow-sm px-4 py-4 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
               />
             </div>
           </div>
 
           <div className="relative" ref={categoryDropdownRef}>
-            <label className="block text-xs font-black uppercase mb-1">Category</label>
+            <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Category</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-900 transition-colors">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-900 transition-colors">
                 <Search className="w-4 h-4" />
               </div>
               <input
@@ -305,12 +313,12 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                 }}
                 onFocus={() => setIsCategoryDropdownOpen(true)}
                 placeholder="Search or select category..."
-                className="brutal-input pl-10 pr-10 w-full bg-white"
+                className="w-full rounded-2xl bg-white shadow-sm pl-11 pr-11 py-4 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
               />
               <button
                 type="button"
                 onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
-                className="absolute right-0 top-0 bottom-0 px-3 border-l-2 border-zinc-200 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-900 transition-colors"
               >
                 <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isCategoryDropdownOpen && "rotate-180")} />
               </button>
@@ -322,14 +330,14 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="absolute z-50 left-0 right-0 mt-2 bg-white border-4 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] max-h-60 overflow-y-auto"
+                  className="absolute z-50 left-0 right-0 mt-2 bg-white rounded-2xl shadow-lg max-h-60 overflow-y-auto overflow-hidden"
                 >
                   {filteredCategories.length === 0 ? (
                     <div className="p-4 text-center text-xs font-bold text-zinc-400 uppercase">
                       No matching categories
                     </div>
                   ) : (
-                    <div className="divide-y-2 divide-zinc-100">
+                    <div className="divide-y divide-zinc-100">
                       {filteredCategories.map((c) => (
                         <button
                           key={c.id}
@@ -355,32 +363,37 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
           </div>
 
           <div>
-            <label className="block text-xs font-black uppercase mb-1">Remarks</label>
+            <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Remarks</label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              className="brutal-input h-20 resize-none"
+              className="w-full rounded-2xl bg-white shadow-sm px-4 py-4 h-24 resize-none text-base font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
               placeholder="What was this for?"
             />
           </div>
 
           {/* File Upload */}
           <div className="flex items-center justify-between gap-4">
-            <label className="text-xs font-black uppercase">Receipt Image</label>
+            <label className="text-xs font-black uppercase text-zinc-500">Receipt Image</label>
             <div className="relative">
-              {preview ? (
-                <div className="relative brutal-card w-32 h-[42px] overflow-hidden">
+              {isCompressingFile ? (
+                <div className="flex items-center gap-2 px-4 h-11 rounded-full bg-white shadow-sm">
+                  <Loader2 className="w-4 h-4 text-zinc-900 animate-spin" />
+                  <span className="text-[10px] font-black uppercase text-zinc-900">Compressing...</span>
+                </div>
+              ) : preview ? (
+                <div className="relative w-32 h-11 rounded-2xl overflow-hidden shadow-sm">
                   <img src={preview} alt="Receipt preview" className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => { setFile(null); setPreview(null); }}
-                    className="absolute top-0 right-0 p-1 bg-zinc-900 text-white border-l-2 border-b-2 border-zinc-200"
+                    className="absolute top-1 right-1 p-1 rounded-full bg-zinc-900 text-white"
                   >
                     <X className="w-3 h-3" />
                   </button>
                 </div>
               ) : (
-                <label className="flex items-center gap-2 px-4 h-[42px] brutal-card bg-zinc-100 cursor-pointer hover:bg-zinc-200 transition-all">
+                <label className="flex items-center gap-2 px-4 h-11 rounded-full bg-white shadow-sm cursor-pointer hover:shadow-md transition-shadow">
                   <Camera className="w-4 h-4 text-zinc-900" />
                   <span className="text-[10px] font-black uppercase text-zinc-900">Upload</span>
                   <input
@@ -398,31 +411,29 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
             <p className="text-red-600 text-xs font-bold uppercase">{error}</p>
           )}
 
-          <div className="flex flex-col gap-3 pt-4">
-            <div className="flex gap-4">
-              <button
-                type="button"
-                onClick={handleClear}
-                className="flex-1 brutal-button bg-white text-zinc-900"
-              >
-                Clear
-              </button>
-              <button
-                type="submit"
-                disabled={loading || deleting}
-                className="flex-[2] brutal-button flex items-center justify-center gap-2"
-              >
-                {(loading || deleting) && <Loader2 className="w-4 h-4 animate-spin" />}
-                {editingTransaction ? 'Update Transaction' : 'Save Transaction'}
-              </button>
-            </div>
-            
+          <div className="flex flex-col gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={loading || deleting}
+              className="w-full rounded-full bg-zinc-900 text-white py-4 font-bold text-base shadow-md hover:shadow-lg hover:bg-zinc-800 active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {(loading || deleting) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {editingTransaction ? 'Update Transaction' : 'Save Transaction'}
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="w-full rounded-full bg-white text-zinc-900 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all"
+            >
+              Clear
+            </button>
+
             {editingTransaction && (
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={loading || deleting}
-                className="w-full brutal-button bg-red-100 text-red-600 border-red-600 hover:bg-red-200"
+                className="w-full rounded-full bg-red-100 text-red-600 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all disabled:opacity-50"
               >
                 Delete Transaction
               </button>

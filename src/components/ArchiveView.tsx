@@ -91,7 +91,7 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
 
       <div className="space-y-3">
         {archivedBuckets.length === 0 ? (
-          <div className="text-center py-12 brutal-card bg-zinc-100 border-dashed">
+          <div className="text-center py-12 rounded-2xl bg-zinc-100">
             <p className="text-xs font-bold uppercase text-zinc-400">No archived buckets</p>
           </div>
         ) : (
@@ -105,7 +105,7 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 border-2 border-zinc-200 bg-zinc-50 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-2xl bg-zinc-50 flex items-center justify-center">
                       <Wallet className="w-5 h-5 text-zinc-400" />
                     </div>
                     <div>
@@ -126,62 +126,62 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 20 }}
-                        className="flex items-center gap-2 bg-zinc-900 p-1 border-2 border-zinc-200"
+                        className="flex items-center gap-2 bg-zinc-900 p-1 rounded-full shadow-sm"
                       >
                         <span className="text-[8px] font-black uppercase text-white px-2">Restore?</span>
-                        <button 
+                        <button
                           onClick={() => handleRestore(b.id)}
                           disabled={loading === b.id}
-                          className="p-1 bg-white hover:bg-zinc-100 transition-all"
+                          className="p-1.5 rounded-full bg-white hover:bg-zinc-100 transition-all"
                         >
                           {loading === b.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3 text-green-600" />}
                         </button>
-                        <button 
+                        <button
                           onClick={() => setConfirmingRestore(null)}
-                          className="p-1 bg-white hover:bg-zinc-100 transition-all"
+                          className="p-1.5 rounded-full bg-white hover:bg-zinc-100 transition-all"
                         >
                           <X className="w-3 h-3 text-red-600" />
                         </button>
                       </motion.div>
                     ) : confirmingDelete === b.id ? (
-                      <motion.div 
+                      <motion.div
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 20 }}
-                        className="flex items-center gap-2 bg-red-600 p-1 border-2 border-red-600"
+                        className="flex items-center gap-2 bg-red-600 p-1 rounded-full shadow-sm"
                       >
                         <span className="text-[8px] font-black uppercase text-white px-2">Delete?</span>
-                        <button 
+                        <button
                           onClick={() => handleDelete(b.id)}
                           disabled={loading === b.id}
-                          className="p-1 bg-white hover:bg-zinc-100 transition-all"
+                          className="p-1.5 rounded-full bg-white hover:bg-zinc-100 transition-all"
                         >
                           {loading === b.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3 text-red-600" />}
                         </button>
-                        <button 
+                        <button
                           onClick={() => setConfirmingDelete(null)}
-                          className="p-1 bg-white hover:bg-zinc-100 transition-all"
+                          className="p-1.5 rounded-full bg-white hover:bg-zinc-100 transition-all"
                         >
                           <X className="w-3 h-3 text-zinc-900" />
                         </button>
                       </motion.div>
                     ) : (
-                      <motion.div 
+                      <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="flex items-center gap-2"
                       >
-                        <button 
+                        <button
                           onClick={() => setConfirmingRestore(b.id)}
-                          className="p-2 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-all"
+                          className="p-2 rounded-full bg-white shadow-sm hover:shadow-md transition-all"
                           title="Restore Bucket"
                         >
                           <RotateCcw className="w-4 h-4 text-zinc-900" />
                         </button>
-                        <button 
+                        <button
                           onClick={() => setConfirmingDelete(b.id)}
-                          className="p-2 border-2 border-zinc-200 bg-red-50 hover:bg-red-100 transition-all"
+                          className="p-2 rounded-full bg-red-50 shadow-sm hover:bg-red-100 hover:shadow-md transition-all"
                           title="Delete Permanently"
                         >
                           <Trash2 className="w-4 h-4 text-red-600" />

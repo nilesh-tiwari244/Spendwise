@@ -13,20 +13,24 @@
 }
 
 @layer components {
+  /* border-2 border-transparent (rather than dropping the border entirely)
+     keeps the 2px width available for any spot that overrides just the
+     border color for a deliberate accent (warnings, outlined variants) -
+     those keep working without auditing every usage individually. */
   .brutal-card {
-    @apply bg-white border-2 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] transition-all;
+    @apply bg-white rounded-2xl border-2 border-transparent shadow-sm transition-all;
   }
-  
+
   .brutal-card:active {
-    @apply translate-x-[2px] translate-y-[2px] shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)];
+    @apply scale-[0.99];
   }
 
   .brutal-button {
-    @apply bg-zinc-900 text-white px-4 py-2 border-2 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] hover:bg-zinc-800 active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)] transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-zinc-900 text-white px-4 py-2 rounded-full border-2 border-transparent shadow-sm hover:shadow-md hover:bg-zinc-800 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .brutal-input {
-    @apply w-full bg-white border-2 border-zinc-200 px-3 py-2 focus:outline-none focus:ring-0 focus:border-zinc-900 transition-all;
+    @apply w-full bg-white rounded-2xl border-2 border-transparent px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-all;
   }
 
   input[type="date"],

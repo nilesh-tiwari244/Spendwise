@@ -91,12 +91,12 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
 
       <div className="space-y-3">
         {isInitialLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4 brutal-card bg-zinc-50 border-dashed">
+          <div className="flex flex-col items-center justify-center py-20 space-y-4 rounded-2xl bg-zinc-50">
             <Loader2 className="w-8 h-8 animate-spin text-zinc-900" />
             <div className="text-[10px] font-black uppercase text-zinc-400 tracking-widest leading-none">Searching the bin...</div>
           </div>
         ) : deletedTransactions.length === 0 ? (
-          <div className="text-center py-20 brutal-card bg-zinc-100 border-dashed">
+          <div className="text-center py-20 rounded-2xl bg-zinc-100">
             <p className="text-[10px] font-black uppercase text-zinc-400">Recycle bin is empty</p>
           </div>
         ) : (
@@ -149,7 +149,7 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                     <div className="flex items-start gap-2 flex-1 min-w-0">
                       {/* Date Block */}
                       <div className={cn(
-                        "w-14 h-[72px] border-2 border-zinc-200 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                        "w-14 h-[72px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                         t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                       )}>
                         <span className="text-base">{dateParts.day}</span>
@@ -161,13 +161,13 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                         <div className="flex flex-col gap-0.5">
                           {/* Category Box and Bucket */}
                           <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                            <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
+                            <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 rounded-full">
                               {bucket?.name || 'No Bucket'}
                             </span>
-                            <div className="border-2 border-zinc-200 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
+                            <div className="rounded-full px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-zinc-100">
                               {t.category?.name || '---'}
                             </div>
-                            <span className="text-[8px] font-black uppercase bg-red-100 text-red-600 px-1 border border-red-600 flex-shrink-0">Deleted</span>
+                            <span className="text-[8px] font-black uppercase bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full flex-shrink-0">Deleted</span>
                           </div>
                           
                           {/* Remarks */}
@@ -214,14 +214,14 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                     </div>
                   </div>
 
-                  <div className="flex gap-2 pt-2 border-t-2 border-zinc-50">
+                  <div className="flex gap-2 pt-2">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setConfirmingRestore(t.id);
                       }}
                       disabled={!!loading}
-                      className="w-full py-2 border-2 border-zinc-200 bg-zinc-900 text-white text-[10px] font-black uppercase flex items-center justify-center gap-1 hover:bg-zinc-800 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)] active:shadow-none active:translate-x-[1px] active:translate-y-[1px]"
+                      className="w-full py-2 rounded-full bg-zinc-900 text-white text-[10px] font-black uppercase flex items-center justify-center gap-1 hover:bg-zinc-800 shadow-sm hover:shadow-md active:scale-[0.99] transition-all"
                     >
                       {loading === t.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                       Restore Transaction

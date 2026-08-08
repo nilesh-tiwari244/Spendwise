@@ -20,7 +20,7 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             onClick={() => onDismiss(t.id)}
-            className="pointer-events-auto border-2 border-zinc-200 bg-zinc-900 text-white px-4 py-3 flex items-center gap-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] cursor-pointer"
+            className="pointer-events-auto rounded-2xl bg-zinc-900 text-white px-4 py-3 flex items-center gap-2 shadow-lg cursor-pointer"
           >
             <Info className="w-4 h-4 shrink-0" />
             <span className="text-[11px] font-bold uppercase tracking-tight leading-tight">{t.message}</span>

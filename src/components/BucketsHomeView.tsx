@@ -205,7 +205,7 @@ export function BucketsHomeView({
   return (
     <div className="space-y-8">
       {error && (
-        <div className="bg-red-50 border-2 border-red-500 p-4 text-red-700 text-sm font-bold brutal-card">
+        <div className="bg-red-50 p-4 text-red-700 text-sm font-bold brutal-card">
           {error}
           <button onClick={() => setError(null)} className="float-right text-red-900 hover:text-red-500">
             <X className="w-4 h-4" />
@@ -215,7 +215,7 @@ export function BucketsHomeView({
       {/* Pending Ownership Transfers */}
       {pendingTransfers.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2 flex items-center gap-2 text-amber-600">
+          <h3 className="text-xs font-black uppercase tracking-widest text-amber-600 pb-1 flex items-center gap-2">
             <Send className="w-4 h-4 animate-bounce" />
             Pending Ownership Transfers
           </h3>
@@ -225,7 +225,7 @@ export function BucketsHomeView({
                 key={s.id}
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="brutal-card bg-amber-50 border-amber-500 p-4 space-y-3 shadow-[4px_4px_0px_0px_rgba(245,158,11,1)]"
+                className="brutal-card bg-amber-50 p-4 space-y-3"
               >
                 <div className="flex items-center justify-between">
                   <div>
@@ -236,11 +236,11 @@ export function BucketsHomeView({
                       From: {profiles[s.shared_by_email] || s.shared_by_email}
                     </div>
                   </div>
-                  <div className="w-10 h-10 bg-amber-100 border-2 border-amber-500 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center">
                     <Wallet className="w-5 h-5 text-amber-600" />
                   </div>
                 </div>
-                <div className="p-2 bg-white/50 border border-amber-200 text-[10px] font-bold text-amber-800 leading-tight italic">
+                <div className="rounded-xl p-2 bg-white/60 text-[10px] font-bold text-amber-800 leading-tight italic">
                   "By accepting, you will become the legal owner of this bucket and all its transactions."
                 </div>
                 <div className="flex gap-2">
@@ -250,7 +250,7 @@ export function BucketsHomeView({
                       handleAcceptTransferLocal(s);
                     }}
                     disabled={loading}
-                    className="flex-1 brutal-button bg-amber-600 text-white py-2 text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-amber-700 active:translate-x-1 active:translate-y-1"
+                    className="flex-1 brutal-button bg-amber-600 text-white py-2 text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-amber-700"
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                     Accept Ownership
@@ -261,7 +261,7 @@ export function BucketsHomeView({
                       handleRejectTransferLocal(s.id);
                     }}
                     disabled={loading}
-                    className="px-4 brutal-button bg-white text-amber-600 border-amber-600 py-2 text-[10px] font-black uppercase flex items-center justify-center hover:bg-amber-50"
+                    className="px-4 brutal-button bg-white text-amber-600 py-2 text-[10px] font-black uppercase flex items-center justify-center hover:bg-amber-50"
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
                   </button>
@@ -275,7 +275,7 @@ export function BucketsHomeView({
       {/* Pending Invitations */}
       {pendingInvitations.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2 flex items-center gap-2">
+          <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 pb-1 flex items-center gap-2">
             <Mail className="w-4 h-4" />
             Pending Invitations
           </h3>
@@ -285,7 +285,7 @@ export function BucketsHomeView({
                 key={s.id}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="brutal-card bg-white p-3 flex items-center justify-between border-dashed"
+                className="brutal-card bg-white p-3 flex items-center justify-between"
               >
                 <div>
                   <div className="text-xs font-black uppercase tracking-tight">
@@ -299,14 +299,14 @@ export function BucketsHomeView({
                   <button
                     onClick={() => handleAcceptShare(s.id)}
                     disabled={loading}
-                    className="p-2 brutal-card bg-green-500 text-white hover:bg-green-600 transition-all"
+                    className="p-2 rounded-full bg-green-500 text-white shadow-sm hover:bg-green-600 transition-all"
                   >
                     <Check className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleDeclineShare(s.id)}
                     disabled={loading}
-                    className="p-2 brutal-card bg-red-500 text-white hover:bg-red-600 transition-all"
+                    className="p-2 rounded-full bg-red-500 text-white shadow-sm hover:bg-red-600 transition-all"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -318,13 +318,13 @@ export function BucketsHomeView({
       )}
 
       {orphanedCount > 0 && !hasRNCReserve && (
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="brutal-card bg-yellow-100 border-yellow-600 p-4"
+          className="brutal-card bg-yellow-100 p-4"
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-yellow-200 border-2 border-yellow-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-2xl bg-yellow-200 flex items-center justify-center">
               <Plus className="w-5 h-5 text-yellow-700" />
             </div>
             <div>
@@ -339,10 +339,10 @@ export function BucketsHomeView({
 
       {/* Buckets List */}
       <section className="space-y-4">
-        <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2">Your Buckets</h3>
+        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 pb-1">Your Buckets</h3>
         <div className="grid grid-cols-1 gap-3">
           {sortedBuckets.length === 0 ? (
-            <div className="text-center py-12 brutal-card bg-zinc-100 border-dashed">
+            <div className="text-center py-12 rounded-2xl bg-zinc-100">
               <p className="text-xs font-bold uppercase text-zinc-400">No buckets created yet</p>
             </div>
           ) : (
@@ -356,7 +356,7 @@ export function BucketsHomeView({
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 border-2 border-zinc-200 bg-zinc-50 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-2xl bg-zinc-50 flex items-center justify-center">
                       <Wallet className="w-5 h-5" />
                     </div>
                     <div>
@@ -366,7 +366,7 @@ export function BucketsHomeView({
                           <Share2 className="w-3.5 h-3.5 text-zinc-400" />
                         )}
                         {shares.some(s => s.bucket_id === b.id && s.access_level === 'transfer' && s.status === 'pending') && (
-                          <span className="text-[8px] font-black uppercase bg-amber-100 text-amber-600 px-1 border border-amber-500 animate-pulse">
+                          <span className="text-[8px] font-black uppercase bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full animate-pulse">
                             Transfer Pending
                           </span>
                         )}
@@ -386,7 +386,7 @@ export function BucketsHomeView({
                       setPersonalAlias(b.name !== b.original_name ? b.name : '');
                       setPersonalColor(b.color || '#ffffff');
                     }}
-                    className="p-2 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-all"
+                    className="p-2 rounded-full bg-white shadow-sm hover:shadow-md transition-all"
                     title="Edit / Share"
                   >
                     <Edit2 className="w-4 h-4 text-zinc-900" />
@@ -415,23 +415,23 @@ export function BucketsHomeView({
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white border-4 border-zinc-200 z-50 p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.12)] overflow-y-auto max-h-[90vh]"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white rounded-3xl z-50 p-6 shadow-xl overflow-y-auto max-h-[90vh]"
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-black uppercase tracking-tighter">Edit Bucket</h2>
-                <button 
+                <button
                   onClick={() => {
                     setEditingBucket(null);
                     setShowArchiveConfirm(false);
-                  }} 
-                  className="p-1 border-2 border-zinc-200 bg-zinc-100"
+                  }}
+                  className="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="space-y-4 mb-8 pb-8 border-b-2 border-zinc-100">
-                <div className="bg-zinc-50 p-3 border-2 border-zinc-200">
+              <div className="space-y-4 mb-8 pb-8">
+                <div className="rounded-2xl bg-zinc-50 p-3">
                   <label className="block text-[10px] font-black uppercase mb-1 text-zinc-500">Original Name (Set by Owner)</label>
                   <div className="font-bold text-sm">{editingBucket.original_name || editingBucket.name}</div>
                 </div>
@@ -454,7 +454,7 @@ export function BucketsHomeView({
                       type="color"
                       value={personalColor}
                       onChange={(e) => setPersonalColor(e.target.value)}
-                      className="w-12 h-12 p-1 border-2 border-zinc-200 cursor-pointer"
+                      className="w-12 h-12 p-1 rounded-2xl shadow-sm cursor-pointer"
                     />
                     <span className="text-xs font-mono">{personalColor}</span>
                   </div>
@@ -475,7 +475,7 @@ export function BucketsHomeView({
 
               {editingBucket.user_id === userId && (
                 <>
-                  <form onSubmit={handleUpdateBucket} className="space-y-4 mb-8 pb-8 border-b-2 border-zinc-100">
+                  <form onSubmit={handleUpdateBucket} className="space-y-4 mb-8 pb-8">
                     <div>
                       <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">Rename Bucket Globally (Owner Only)</label>
                       <div className="flex gap-2">
@@ -497,19 +497,19 @@ export function BucketsHomeView({
                     </div>
                   </form>
 
-                  <div className="mb-8 pb-8 border-b-2 border-zinc-100">
+                  <div className="mb-8 pb-8">
                     {!showArchiveConfirm ? (
                       <button
                         type="button"
                         onClick={() => setShowArchiveConfirm(true)}
                         disabled={loading}
-                        className="w-full flex items-center justify-center gap-2 p-3 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-all font-black uppercase text-xs disabled:opacity-50"
+                        className="w-full flex items-center justify-center gap-2 p-3 rounded-full bg-white shadow-sm hover:shadow-md transition-all font-black uppercase text-xs disabled:opacity-50"
                       >
                         <Archive className="w-4 h-4" />
                         Archive Bucket
                       </button>
                     ) : (
-                      <div className="space-y-3 p-4 bg-zinc-50 border-2 border-zinc-200">
+                      <div className="space-y-3 rounded-2xl p-4 bg-zinc-50">
                         <p className="text-[10px] font-black uppercase text-center">Are you sure? This moves it to Archive.</p>
                         <div className="flex gap-2">
                           <button
@@ -529,9 +529,9 @@ export function BucketsHomeView({
                         </div>
                       </div>
                     )}
-                    
+
                     {error && (
-                      <div className="mt-4 p-3 bg-red-50 border-2 border-red-500 text-red-600 text-[10px] font-bold uppercase">
+                      <div className="mt-4 rounded-xl p-3 bg-red-50 text-red-600 text-[10px] font-bold uppercase">
                         {error}
                       </div>
                     )}
