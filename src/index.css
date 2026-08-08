@@ -27,6 +27,15 @@
   .brutal-input {
     @apply w-full bg-white border-2 border-zinc-900 px-3 py-2 focus:outline-none focus:ring-0 focus:border-zinc-900 transition-all;
   }
+
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"] {
+    min-width: 0;
+    max-width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 @media print {

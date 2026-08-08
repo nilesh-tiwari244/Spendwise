@@ -120,7 +120,7 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0">
             <label className="text-[10px] font-black uppercase text-zinc-500 block">Start Date</label>
             <input 
               type="date" 
@@ -133,7 +133,7 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
               className="w-full brutal-input text-sm p-2"
             />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0">
             <label className="text-[10px] font-black uppercase text-zinc-500 block">End Date</label>
             <input 
               type="date" 

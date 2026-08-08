@@ -319,7 +319,7 @@ const runAnalysis = async () => {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div>
+          <div className="min-w-0">
             <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">Start Date</label>
             <input
               type="date"
@@ -328,7 +328,7 @@ const runAnalysis = async () => {
               className="brutal-input py-2 text-xs"
             />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">End Date</label>
             <input
               type="date"
