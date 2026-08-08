@@ -12,12 +12,13 @@ interface AddTransactionViewProps {
   editingTransaction?: Transaction | null;
   onBack: () => void;
   onSuccess: () => void;
-  onOptimisticAdd: (tx: Partial<Transaction>) => void;
+  onOptimisticAdd: (tx: Partial<Transaction>) => string;
+  onOptimisticAddConfirm?: (tempId: string, realTx: Transaction) => void;
   onOptimisticEdit?: (tx: Partial<Transaction>) => void;
   onOptimisticDelete?: (id: string) => void;
 }
 
-export function AddTransactionView({ categories, selectedBucket, editingTransaction, onBack, onSuccess, onOptimisticAdd, onOptimisticEdit, onOptimisticDelete }: AddTransactionViewProps) {
+export function AddTransactionView({ categories, selectedBucket, editingTransaction, onBack, onSuccess, onOptimisticAdd, onOptimisticAddConfirm, onOptimisticEdit, onOptimisticDelete }: AddTransactionViewProps) {
   const [type, setType] = useState<'Credit' | 'Debit'>(editingTransaction?.type || 'Debit');
   const [amount, setAmount] = useState(editingTransaction?.amount.toString() || '');
   const [date, setDate] = useState(editingTransaction ? new Date(editingTransaction.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
@@ -66,12 +67,17 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
     setError(null);
 
     try {
-      const { error: deleteError } = await supabase
+      const { data: deleteData, error: deleteError } = await supabase
         .from('transactions')
         .update({ deleted_at: new Date().toISOString() })
-        .eq('id', editingTransaction.id);
+        .eq('id', editingTransaction.id)
+        .is('deleted_at', null)
+        .select('id');
 
       if (deleteError) throw deleteError;
+      if (!deleteData || deleteData.length === 0) {
+        throw new Error('This transaction was already deleted, or you no longer have permission to delete it. Go back and refresh to see the latest state.');
+      }
       await logActivity(editingTransaction.bucket_id, 'transaction_deleted', { remarks: editingTransaction.remarks, amount: editingTransaction.amount });
       
       if (onOptimisticDelete) {
@@ -136,20 +142,33 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
         updated_at: new Date().toISOString()
       };
 
+      let tempId: string | undefined;
       if (!editingTransaction) {
-        onOptimisticAdd(transactionData);
+        tempId = onOptimisticAdd(transactionData);
       }
 
       if (editingTransaction) {
-        const { error: updateError } = await supabase
+        // Match on the server's last-known updated_at, not our own guess -
+        // the DB overwrites updated_at with its own clock on every write, so
+        // our local optimistic value is never byte-identical to what's
+        // actually stored. select() the real row back so local state adopts
+        // the server's true updated_at, otherwise a second rapid edit of the
+        // same transaction would falsely think someone else changed it.
+        const { data: updateData, error: updateError } = await supabase
           .from('transactions')
           .update(transactionData)
-          .eq('id', editingTransaction.id);
-        
+          .eq('id', editingTransaction.id)
+          .eq('updated_at', editingTransaction.updated_at)
+          .select()
+          .maybeSingle();
+
         if (updateError) throw updateError;
-        
+        if (!updateData) {
+          throw new Error('This transaction was changed or deleted by another user since you opened it. Go back and refresh before editing again.');
+        }
+
         if (onOptimisticEdit) {
-          onOptimisticEdit({ id: editingTransaction.id, ...transactionData });
+          onOptimisticEdit(updateData);
         }
 
         // Log specific changes
@@ -178,6 +197,12 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
         if (insertError) throw insertError;
         if (data) {
           await logActivity(data.bucket_id, 'transaction_added', { remarks: data.remarks, amount: data.amount });
+          // Swap the temp optimistic row for the real one immediately - if we
+          // left the temp `opt-...` id in place, editing/deleting it before
+          // the next refetch would fail (that id doesn't exist in the DB).
+          if (tempId && onOptimisticAddConfirm) {
+            onOptimisticAddConfirm(tempId, data);
+          }
         }
       }
       onSuccess();
@@ -215,7 +240,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Type Toggle */}
-          <div className="flex border-2 border-zinc-900">
+          <div className="flex border-2 border-zinc-200">
             <button
               type="button"
               onClick={() => setType('Debit')}
@@ -285,7 +310,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
               <button
                 type="button"
                 onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
-                className="absolute right-0 top-0 bottom-0 px-3 border-l-2 border-zinc-900 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                className="absolute right-0 top-0 bottom-0 px-3 border-l-2 border-zinc-200 bg-zinc-100 hover:bg-zinc-200 transition-colors"
               >
                 <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isCategoryDropdownOpen && "rotate-180")} />
               </button>
@@ -297,7 +322,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="absolute z-50 left-0 right-0 mt-2 bg-white border-4 border-zinc-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-60 overflow-y-auto"
+                  className="absolute z-50 left-0 right-0 mt-2 bg-white border-4 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] max-h-60 overflow-y-auto"
                 >
                   {filteredCategories.length === 0 ? (
                     <div className="p-4 text-center text-xs font-bold text-zinc-400 uppercase">
@@ -349,7 +374,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                   <button
                     type="button"
                     onClick={() => { setFile(null); setPreview(null); }}
-                    className="absolute top-0 right-0 p-1 bg-zinc-900 text-white border-l-2 border-b-2 border-zinc-900"
+                    className="absolute top-0 right-0 p-1 bg-zinc-900 text-white border-l-2 border-b-2 border-zinc-200"
                   >
                     <X className="w-3 h-3" />
                   </button>

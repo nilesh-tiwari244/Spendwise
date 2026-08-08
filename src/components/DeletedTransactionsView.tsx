@@ -149,7 +149,7 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                     <div className="flex items-start gap-2 flex-1 min-w-0">
                       {/* Date Block */}
                       <div className={cn(
-                        "w-14 h-[72px] border-2 border-zinc-900 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                        "w-14 h-[72px] border-2 border-zinc-200 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                         t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                       )}>
                         <span className="text-base">{dateParts.day}</span>
@@ -161,10 +161,10 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                         <div className="flex flex-col gap-0.5">
                           {/* Category Box and Bucket */}
                           <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                            <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                            <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
                               {bucket?.name || 'No Bucket'}
                             </span>
-                            <div className="border-2 border-zinc-900 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                            <div className="border-2 border-zinc-200 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
                               {t.category?.name || '---'}
                             </div>
                             <span className="text-[8px] font-black uppercase bg-red-100 text-red-600 px-1 border border-red-600 flex-shrink-0">Deleted</span>
@@ -221,7 +221,7 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                         setConfirmingRestore(t.id);
                       }}
                       disabled={!!loading}
-                      className="w-full py-2 border-2 border-zinc-900 bg-zinc-900 text-white text-[10px] font-black uppercase flex items-center justify-center gap-1 hover:bg-zinc-800 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px] active:translate-y-[1px]"
+                      className="w-full py-2 border-2 border-zinc-200 bg-zinc-900 text-white text-[10px] font-black uppercase flex items-center justify-center gap-1 hover:bg-zinc-800 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)] active:shadow-none active:translate-x-[1px] active:translate-y-[1px]"
                     >
                       {loading === t.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                       Restore Transaction

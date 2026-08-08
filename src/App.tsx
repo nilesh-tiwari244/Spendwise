@@ -9,12 +9,13 @@ import { TransactionDetailView } from './components/TransactionDetailView';
 import { DeletedTransactionsView } from './components/DeletedTransactionsView';
 import { ArchiveView } from './components/ArchiveView';
 import { BucketsHomeView } from './components/BucketsHomeView';
-import { AnalyzeView } from './components/AnalyzeView';
+import { AnalyzeView, type AnalyzeSnapshot } from './components/AnalyzeView';
 import { RecentlyAddedView } from './components/RecentlyAddedView';
 import { ActivityLogView } from './components/ActivityLogView';
 import { SummaryView } from './components/SummaryView';
 import { ProfileView } from './components/ProfileView';
 import { Sidebar } from './components/Sidebar';
+import { ToastStack, type ToastMessage } from './components/Toast';
 import { Loader2, Menu, ArrowLeft, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, downloadCSV } from './lib/utils';
@@ -66,6 +67,10 @@ export default function App() {
   
   // We keep these in global state for now to minimize breaking changes during transition
   const [analyzeParams, setAnalyzeParams] = useState<AnalyzeParams>(null);
+  // Persists AnalyzeView's filters/results across its unmount/remount when
+  // navigating to view a transaction and back, so that round-trip doesn't
+  // wipe the results list the user was scrolled into.
+  const [analyzeSnapshot, setAnalyzeSnapshot] = useState<AnalyzeSnapshot | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
@@ -86,6 +91,24 @@ export default function App() {
   
   const [isBucketLoading, setIsBucketLoading] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const pushToast = useCallback((message: string) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setToasts(prev => [...prev, { id, message }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Refs so realtime callbacks (set up once per session) always see fresh values
+  // without needing to tear down and resubscribe the channels.
+  const bucketIdsRef = useRef<Set<string>>(new Set());
+  const profilesRef = useRef<Record<string, string>>({});
 
   // Derive the active bucket from the URL for global UI elements (like the header)
   const match = location.pathname.match(/\/bucket\/([^/]+)/);
@@ -97,6 +120,58 @@ export default function App() {
       loadedTxCount.current = transactions.length;
     }
   }, [transactions.length]);
+
+  useEffect(() => {
+    bucketIdsRef.current = new Set(buckets.map(b => b.id));
+  }, [buckets]);
+
+  // Forget per-route transient state on a genuine exit from that route,
+  // regardless of which control the user used to leave — the sticky
+  // header's generic back button just calls navigate(-1) and bypasses each
+  // view's own onBack prop, so cleanup can't rely on those callbacks alone.
+  const prevPathRef = useRef(location.pathname);
+  useEffect(() => {
+    const prevPath = prevPathRef.current;
+    const currPath = location.pathname;
+
+    // Leaving Analyze (unless stepping into a transaction's detail) forgets
+    // its search snapshot.
+    const isGoingToViewTransaction = currPath.endsWith('/view-transaction');
+    if (prevPath === '/analyze' && currPath !== '/analyze' && !isGoingToViewTransaction) {
+      setAnalyzeSnapshot(null);
+    }
+
+    // Leaving the add/edit-transaction screen forgets which transaction was
+    // being edited, so a later "Add New" doesn't silently reopen it in edit
+    // mode instead of a blank form.
+    if (prevPath.endsWith('/add-transaction') && currPath !== prevPath) {
+      setEditingTransaction(null);
+    }
+
+    // Leaving the transaction-detail screen forgets which transaction was
+    // being viewed, unless we're stepping forward into editing it (that
+    // transition intentionally keeps it set).
+    const isGoingToEdit = currPath.endsWith('/add-transaction');
+    if (prevPath.endsWith('/view-transaction') && currPath !== prevPath && !isGoingToEdit) {
+      setSelectedTransaction(null);
+    }
+
+    prevPathRef.current = currPath;
+  }, [location.pathname]);
+
+  useEffect(() => {
+    profilesRef.current = profiles;
+  }, [profiles]);
+
+  // Lets optimistic edit/delete look up the transaction they're adjusting
+  // without needing to read it from inside a setState updater (see below) -
+  // reading from `prev` there meant nesting side-effecting setState calls
+  // inside another updater, which isn't safe if React ever needs to
+  // re-invoke that updater to check its purity.
+  const transactionsRef = useRef<Transaction[]>([]);
+  useEffect(() => {
+    transactionsRef.current = transactions;
+  }, [transactions]);
 
   const { prefs, updatePreference } = useBucketPreferences(session?.user?.id);
 
@@ -281,32 +356,87 @@ export default function App() {
   useEffect(() => {
     if (session && !isRecovery) {
       fetchData(true);
-      
+
+      const myEmail = session.user.email;
+      const myId = session.user.id;
+
       const transactionsChannel = supabase
         .channel('transactions-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => debouncedFetchData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, (payload) => {
+          const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
+          const actorEmail = row?.last_edited_by;
+          const bucketId = row?.bucket_id;
+
+          if (bucketId && bucketIdsRef.current.has(bucketId) && actorEmail && actorEmail !== myEmail) {
+            let verb = 'updated a transaction';
+            if (payload.eventType === 'INSERT') verb = 'added a transaction';
+            else if (row?.deleted_at) verb = 'deleted a transaction';
+            pushToast(`${actorEmail} ${verb}`);
+          }
+
+          debouncedFetchData();
+        })
         .subscribe();
 
       const categoriesChannel = supabase
         .channel('categories-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => debouncedFetchData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, (payload) => {
+          const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
+          const bucketId = row?.bucket_id;
+          const actorId = row?.user_id;
+
+          if (bucketId && bucketIdsRef.current.has(bucketId) && actorId && actorId !== myId) {
+            if (payload.eventType === 'INSERT') {
+              const actorLabel = profilesRef.current[actorId] || 'A collaborator';
+              pushToast(`${actorLabel} added a category`);
+            } else if (payload.eventType === 'DELETE') {
+              pushToast('A category was removed by a collaborator');
+            } else {
+              // Categories have no last-edited-by tracking, so edits can't be
+              // reliably attributed to a specific collaborator.
+              pushToast('Categories were updated by a collaborator');
+            }
+          }
+
+          debouncedFetchData();
+        })
         .subscribe();
 
       const sharesChannel = supabase
         .channel('shares-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_shares' }, () => debouncedFetchData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_shares' }, (payload) => {
+          const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
+
+          if (payload.eventType === 'INSERT' && row?.status === 'pending' && row?.shared_with_email === myEmail) {
+            pushToast(`${row.shared_by_email} invited you to a bucket`);
+          } else if (payload.eventType === 'UPDATE' && row?.status === 'accepted' && row?.shared_by_email === myEmail) {
+            pushToast(`${row.shared_with_email} accepted your invite`);
+          }
+
+          debouncedFetchData();
+        })
         .subscribe();
+
+      const handleVisibility = () => {
+        if (document.visibilityState === 'visible') {
+          fetchData(false);
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+      window.addEventListener('focus', handleVisibility);
 
       return () => {
         supabase.removeChannel(transactionsChannel);
         supabase.removeChannel(categoriesChannel);
         supabase.removeChannel(sharesChannel);
+        document.removeEventListener('visibilitychange', handleVisibility);
+        window.removeEventListener('focus', handleVisibility);
         if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       };
     } else {
       setIsAppLoading(false);
     }
-  }, [session, isRecovery, fetchData, debouncedFetchData]);
+  }, [session, isRecovery, fetchData, debouncedFetchData, pushToast]);
 
   const optimisticAddTransaction = useCallback((newTx: Partial<Transaction>) => {
     const tempId = `opt-${Date.now()}`;
@@ -336,46 +466,52 @@ export default function App() {
       [optimisticTx.bucket_id]: (prev[optimisticTx.bucket_id] || 0) + amountChange
     }));
     setGrandTotal(prev => prev + amountChange);
+    return tempId;
   }, [session, categories]);
+
+  // Swaps the temp optimistic row for the real server row once the insert
+  // confirms - without this, the temp `opt-...` id lingers in local state
+  // until the next debounced refetch, so editing/deleting that same
+  // transaction in the meantime would fail (that id doesn't exist in the DB).
+  const confirmOptimisticAdd = useCallback((tempId: string, realTx: Transaction) => {
+    setTransactions(prev => prev.map(t => t.id === tempId
+      ? { ...realTx, category: categories.find(c => c.id === realTx.category_id) }
+      : t
+    ));
+  }, [categories]);
 
   const optimisticEditTransaction = useCallback((updatedTx: Partial<Transaction>) => {
     if (!updatedTx.id) return;
-    
-    setTransactions(prev => prev.map(t => {
-      if (t.id === updatedTx.id) {
-        const oldAmountDir = t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
-        const newAmountDir = updatedTx.type === 'Credit' ? Number(updatedTx.amount || t.amount) : -Number(updatedTx.amount || t.amount);
-        const difference = newAmountDir - oldAmountDir;
-        
-        setBucketTotals(prevTotals => ({
-          ...prevTotals,
-          [t.bucket_id]: (prevTotals[t.bucket_id] || 0) + difference
-        }));
-        setGrandTotal(g => g + difference);
+    const t = transactionsRef.current.find(tx => tx.id === updatedTx.id);
+    if (!t) return;
 
-        return {
-          ...t,
-          ...updatedTx,
-          category: categories.find(c => c.id === (updatedTx.category_id || t.category_id)) || t.category
-        };
-      }
-      return t;
+    const oldAmountDir = t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
+    const newAmountDir = updatedTx.type === 'Credit' ? Number(updatedTx.amount || t.amount) : -Number(updatedTx.amount || t.amount);
+    const difference = newAmountDir - oldAmountDir;
+
+    setTransactions(prev => prev.map(tx => tx.id === updatedTx.id
+      ? { ...tx, ...updatedTx, category: categories.find(c => c.id === (updatedTx.category_id || tx.category_id)) || tx.category }
+      : tx
+    ));
+    setBucketTotals(prevTotals => ({
+      ...prevTotals,
+      [t.bucket_id]: (prevTotals[t.bucket_id] || 0) + difference
     }));
+    setGrandTotal(g => g + difference);
   }, [categories]);
 
   const optimisticDeleteTransaction = useCallback((id: string) => {
-    setTransactions(prev => prev.map(t => {
-      if (t.id === id) {
-        const amountChange = t.type === 'Credit' ? -Number(t.amount) : Number(t.amount);
-        setBucketTotals(prevTotals => ({
-          ...prevTotals,
-          [t.bucket_id]: (prevTotals[t.bucket_id] || 0) + amountChange
-        }));
-        setGrandTotal(g => g + amountChange);
-        return { ...t, deleted_at: new Date().toISOString() };
-      }
-      return t;
+    const t = transactionsRef.current.find(tx => tx.id === id);
+    if (!t) return;
+
+    const amountChange = t.type === 'Credit' ? -Number(t.amount) : Number(t.amount);
+
+    setTransactions(prev => prev.map(tx => tx.id === id ? { ...tx, deleted_at: new Date().toISOString() } : tx));
+    setBucketTotals(prevTotals => ({
+      ...prevTotals,
+      [t.bucket_id]: (prevTotals[t.bucket_id] || 0) + amountChange
     }));
+    setGrandTotal(g => g + amountChange);
   }, []);
 
   const handleAddBucket = async (e: React.FormEvent) => {
@@ -572,7 +708,8 @@ const splitTimestamp = (ts: string | null | undefined) => {
 
   return (
     <div className="min-h-screen bg-zinc-50 pb-32">
-      <MemoizedSidebar 
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <MemoizedSidebar
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
         onLogout={() => supabase.auth.signOut()}
@@ -580,13 +717,13 @@ const splitTimestamp = (ts: string | null | undefined) => {
         isExporting={isExporting}
       />
 
-      <header className="sticky top-0 z-30 bg-white border-b-2 border-zinc-900 px-4 py-4">
+      <header className="sticky top-0 z-30 bg-white border-b-2 border-zinc-200 px-4 py-4">
         <div className="max-w-md mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <button 
               type="button"
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 border-2 border-zinc-900 bg-zinc-100 hover:bg-zinc-200 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
+              className="p-2 border-2 border-zinc-200 bg-zinc-100 hover:bg-zinc-200 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -606,7 +743,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
               <button 
                 type="button"
                 onClick={() => setIsAddingBucket(true)}
-                className="p-2 border-2 border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
+                className="p-2 border-2 border-zinc-200 bg-zinc-900 text-white hover:bg-zinc-800 transition-transform active:scale-90 active:translate-x-[2px] active:translate-y-[2px]"
               >
                 <Plus className="w-5 h-5" />
               </button>
@@ -615,7 +752,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
               <button 
                 type="button"
                 onClick={() => navigate(-1)}
-                className="p-2 border-2 border-zinc-900 bg-white hover:bg-zinc-50 transition-transform flex items-center gap-1 active:scale-95 active:translate-x-[2px] active:translate-y-[2px]"
+                className="p-2 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-transform flex items-center gap-1 active:scale-95 active:translate-x-[2px] active:translate-y-[2px]"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span className="text-[10px] font-black uppercase">Back</span>
@@ -685,6 +822,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     onBack={() => navigate(-1)}
                     onCategoryClick={(categoryId, startDate, endDate) => {
                       setAnalyzeParams({ categoryId, bucketId: bucket.id, startDate, endDate, autoRun: true });
+                      setAnalyzeSnapshot(null);
                       navigate('/analyze');
                     }}
                   />
@@ -709,6 +847,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                       debouncedFetchData();
                     }}
                     onOptimisticAdd={optimisticAddTransaction}
+                    onOptimisticAddConfirm={confirmOptimisticAdd}
                     onOptimisticEdit={optimisticEditTransaction}
                     onOptimisticDelete={optimisticDeleteTransaction}
                   />
@@ -773,6 +912,8 @@ const splitTimestamp = (ts: string | null | undefined) => {
                 selectedBucket={enhancedSelectedBucket}
                 user={session.user}
                 initialParams={analyzeParams}
+                persistedState={analyzeSnapshot}
+                onPersistedStateChange={setAnalyzeSnapshot}
                 onBack={() => {
                   setAnalyzeParams(null);
                   navigate(-1);
@@ -844,7 +985,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
             setSelectedTransaction(null);
             navigate('/');
           }}
-          className="w-full bg-white border-t-2 border-zinc-900 px-4 py-6 flex justify-center items-center active:bg-zinc-100 transition-colors cursor-pointer touch-manipulation"
+          className="w-full bg-white border-t-2 border-zinc-200 px-4 py-6 flex justify-center items-center active:bg-zinc-100 transition-colors cursor-pointer touch-manipulation"
         >
           <div className="max-w-md mx-auto flex justify-center items-center w-full">
             <span 
@@ -874,11 +1015,11 @@ const splitTimestamp = (ts: string | null | undefined) => {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white border-4 border-zinc-900 z-50 p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white border-4 border-zinc-200 z-50 p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.12)]"
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-black uppercase tracking-tighter">New Bucket</h2>
-                <button onClick={() => setIsAddingBucket(false)} className="p-1 border-2 border-zinc-900 bg-zinc-100">
+                <button onClick={() => setIsAddingBucket(false)} className="p-1 border-2 border-zinc-200 bg-zinc-100">
                   <X className="w-4 h-4" />
                 </button>
               </div>

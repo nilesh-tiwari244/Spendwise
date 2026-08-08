@@ -5,6 +5,19 @@ import { fetchAllRows } from '../lib/fetchAll';
 import { ArrowLeft, Search as SearchIcon, Tag, X, PieChart, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+export type AnalyzeSnapshot = {
+  keyword: string;
+  categoryId: string;
+  categorySearch: string;
+  startDate: string;
+  endDate: string;
+  minAmount: string;
+  maxAmount: string;
+  selectedBucketIds: string[];
+  isAnalyzed: boolean;
+  analyzedTransactions: Transaction[];
+};
+
 interface AnalyzeViewProps {
   categories: Category[];
   buckets: Bucket[];
@@ -19,6 +32,10 @@ interface AnalyzeViewProps {
     autoRun?: boolean;
      bucketId?: string;
   } | null;
+  // Persisted across unmount/remount (e.g. navigating to view a transaction
+  // and back) so the results list and filters survive the round-trip.
+  persistedState?: AnalyzeSnapshot | null;
+  onPersistedStateChange: (snapshot: AnalyzeSnapshot) => void;
   onBack: () => void;
   onViewTransaction: (transaction: Transaction) => void;
 }
@@ -34,28 +51,44 @@ function getContrastColor(hexColor: string | undefined): string {
   return brightness > 128 ? 'text-zinc-900' : 'text-white';
 }
 
-export function AnalyzeView({ categories, buckets, shares, profiles, selectedBucket, user, initialParams, onBack, onViewTransaction }: AnalyzeViewProps) {
-  // Input States (Draft Filters)
-  const [keyword, setKeyword] = useState('');
-  const [categoryId, setCategoryId] = useState(initialParams?.categoryId || '');
-  const [categorySearch, setCategorySearch] = useState(categories.find(c => c.id === initialParams?.categoryId)?.name || '');
+export function AnalyzeView({ categories, buckets, shares, profiles, selectedBucket, user, initialParams, persistedState, onPersistedStateChange, onBack, onViewTransaction }: AnalyzeViewProps) {
+  // Input States (Draft Filters) — seeded from persistedState when we're
+  // remounting after a round-trip (e.g. viewing a transaction and going
+  // back), otherwise from initialParams for a fresh drill-down.
+  const [keyword, setKeyword] = useState(persistedState?.keyword ?? '');
+  const [categoryId, setCategoryId] = useState(persistedState?.categoryId ?? initialParams?.categoryId ?? '');
+  const [categorySearch, setCategorySearch] = useState(
+    persistedState?.categorySearch ?? categories.find(c => c.id === initialParams?.categoryId)?.name ?? ''
+  );
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
-  const [startDate, setStartDate] = useState(initialParams?.startDate || '');
-  const [endDate, setEndDate] = useState(initialParams?.endDate || '');
-  const [minAmount, setMinAmount] = useState('');
-  const [maxAmount, setMaxAmount] = useState('');
+  const [startDate, setStartDate] = useState(persistedState?.startDate ?? initialParams?.startDate ?? '');
+  const [endDate, setEndDate] = useState(persistedState?.endDate ?? initialParams?.endDate ?? '');
+  const [minAmount, setMinAmount] = useState(persistedState?.minAmount ?? '');
+  const [maxAmount, setMaxAmount] = useState(persistedState?.maxAmount ?? '');
   const [selectedBucketIds, setSelectedBucketIds] = useState<string[]>(
-    selectedBucket
-      ? [selectedBucket.id]
-      : initialParams?.bucketId
-        ? [initialParams.bucketId]
-        : []
+    persistedState?.selectedBucketIds ?? (
+      selectedBucket
+        ? [selectedBucket.id]
+        : initialParams?.bucketId
+          ? [initialParams.bucketId]
+          : []
+    )
   );
   // Results State
-  const [isAnalyzed, setIsAnalyzed] = useState(false);
+  const [isAnalyzed, setIsAnalyzed] = useState(persistedState?.isAnalyzed ?? false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analyzedTransactions, setAnalyzedTransactions] = useState<Transaction[]>([]);
+  const [analyzedTransactions, setAnalyzedTransactions] = useState<Transaction[]>(persistedState?.analyzedTransactions ?? []);
+
+  // Keep the parent's snapshot in sync so this state survives an
+  // unmount/remount round-trip (e.g. navigating to view a transaction).
+  useEffect(() => {
+    onPersistedStateChange({
+      keyword, categoryId, categorySearch, startDate, endDate,
+      minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword, categoryId, categorySearch, startDate, endDate, minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions]);
 
   const uniqueCategories = useMemo(() => {
     if (selectedBucket) return categories.filter(c => c.bucket_id === selectedBucket.id);
@@ -201,7 +234,7 @@ const runAnalysis = async () => {
         </h2>
       </div>
 
-      <div className="bg-white border-2 border-zinc-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 space-y-4 print:hidden">
+      <div className="bg-white border-2 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] p-4 space-y-4 print:hidden">
         {!selectedBucket && (
           <div>
             <label className="block text-[10px] font-black uppercase mb-2 text-zinc-400">Buckets</label>
@@ -209,7 +242,7 @@ const runAnalysis = async () => {
               <button
                 onClick={() => setSelectedBucketIds([])}
                 className={cn(
-                  "px-3 py-1 text-[10px] font-black uppercase border-2 border-zinc-900 transition-all",
+                  "px-3 py-1 text-[10px] font-black uppercase border-2 border-zinc-200 transition-all",
                   selectedBucketIds.length === 0 ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
                 )}
               >
@@ -220,7 +253,7 @@ const runAnalysis = async () => {
                   key={b.id}
                   onClick={() => toggleBucket(b.id)}
                   className={cn(
-                    "px-3 py-1 text-[10px] font-black uppercase border-2 border-zinc-900 transition-all",
+                    "px-3 py-1 text-[10px] font-black uppercase border-2 border-zinc-200 transition-all",
                     selectedBucketIds.includes(b.id) ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
                   )}
                 >
@@ -260,7 +293,7 @@ const runAnalysis = async () => {
             <button
               type="button"
               onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
-              className="absolute right-0 top-0 bottom-0 px-2 border-l-2 border-zinc-900 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+              className="absolute right-0 top-0 bottom-0 px-2 border-l-2 border-zinc-200 bg-zinc-100 hover:bg-zinc-200 transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", isCategoryDropdownOpen && "rotate-180")} />
             </button>
@@ -272,7 +305,7 @@ const runAnalysis = async () => {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="absolute z-50 left-0 right-0 mt-2 bg-white border-4 border-zinc-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-60 overflow-y-auto"
+                className="absolute z-50 left-0 right-0 mt-2 bg-white border-4 border-zinc-200 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)] max-h-60 overflow-y-auto"
               >
                 <button
                   type="button"
@@ -387,7 +420,7 @@ const runAnalysis = async () => {
           className="space-y-6"
         >
           <div className="space-y-4">
-            <div className="flex justify-between items-center border-b-2 border-zinc-900 pb-2">
+            <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
               <h3 className="text-xs font-black uppercase tracking-widest">Analysis Result</h3>
               <span className="text-[10px] font-black uppercase text-zinc-400">{analyzedTransactions.length} transactions</span>
             </div>
@@ -395,7 +428,7 @@ const runAnalysis = async () => {
             <div className="grid grid-cols-1 gap-4">
               <div className="brutal-card bg-green-50 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-green-100 border-2 border-zinc-900 flex items-center justify-center">
+                  <div className="w-10 h-10 bg-green-100 border-2 border-zinc-200 flex items-center justify-center">
                     <TrendingUp className="w-5 h-5 text-green-600" />
                   </div>
                   <div>
@@ -407,7 +440,7 @@ const runAnalysis = async () => {
 
               <div className="brutal-card bg-red-50 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-red-100 border-2 border-zinc-900 flex items-center justify-center">
+                  <div className="w-10 h-10 bg-red-100 border-2 border-zinc-200 flex items-center justify-center">
                     <TrendingDown className="w-5 h-5 text-red-600" />
                   </div>
                   <div>
@@ -443,7 +476,7 @@ const runAnalysis = async () => {
           </div>
 
           <div className="space-y-4">
-            <div className="flex justify-between items-center border-b-2 border-zinc-900 pb-2">
+            <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
               <h3 className="text-xs font-black uppercase tracking-widest">Transactions</h3>
             </div>
             
@@ -488,7 +521,7 @@ const runAnalysis = async () => {
                     >
                       <div className="flex items-start gap-2 min-w-0 flex-1">
                         <div className={cn(
-                          "w-14 h-[72px] border-2 border-zinc-900 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                          "w-14 h-[72px] border-2 border-zinc-200 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                           t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                         )}>
                           <span className="text-base">{dateParts.day}</span>
@@ -499,10 +532,10 @@ const runAnalysis = async () => {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                              <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                              <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
                                 {bucket?.name || 'No Bucket'}
                               </span>
-                              <div className="border-2 border-zinc-900 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-500 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                              <div className="border-2 border-zinc-200 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-500 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
                                 {t.category?.name || '---'}
                               </div>
                             </div>

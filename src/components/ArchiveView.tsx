@@ -105,7 +105,7 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 border-2 border-zinc-900 bg-zinc-50 flex items-center justify-center">
+                    <div className="w-10 h-10 border-2 border-zinc-200 bg-zinc-50 flex items-center justify-center">
                       <Wallet className="w-5 h-5 text-zinc-400" />
                     </div>
                     <div>
@@ -126,7 +126,7 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 20 }}
-                        className="flex items-center gap-2 bg-zinc-900 p-1 border-2 border-zinc-900"
+                        className="flex items-center gap-2 bg-zinc-900 p-1 border-2 border-zinc-200"
                       >
                         <span className="text-[8px] font-black uppercase text-white px-2">Restore?</span>
                         <button 
@@ -174,14 +174,14 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
                       >
                         <button 
                           onClick={() => setConfirmingRestore(b.id)}
-                          className="p-2 border-2 border-zinc-900 bg-white hover:bg-zinc-50 transition-all"
+                          className="p-2 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-all"
                           title="Restore Bucket"
                         >
                           <RotateCcw className="w-4 h-4 text-zinc-900" />
                         </button>
                         <button 
                           onClick={() => setConfirmingDelete(b.id)}
-                          className="p-2 border-2 border-zinc-900 bg-red-50 hover:bg-red-100 transition-all"
+                          className="p-2 border-2 border-zinc-200 bg-red-50 hover:bg-red-100 transition-all"
                           title="Delete Permanently"
                         >
                           <Trash2 className="w-4 h-4 text-red-600" />

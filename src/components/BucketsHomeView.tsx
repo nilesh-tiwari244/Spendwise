@@ -215,7 +215,7 @@ export function BucketsHomeView({
       {/* Pending Ownership Transfers */}
       {pendingTransfers.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-900 pb-2 flex items-center gap-2 text-amber-600">
+          <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2 flex items-center gap-2 text-amber-600">
             <Send className="w-4 h-4 animate-bounce" />
             Pending Ownership Transfers
           </h3>
@@ -275,7 +275,7 @@ export function BucketsHomeView({
       {/* Pending Invitations */}
       {pendingInvitations.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-900 pb-2 flex items-center gap-2">
+          <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2 flex items-center gap-2">
             <Mail className="w-4 h-4" />
             Pending Invitations
           </h3>
@@ -339,7 +339,7 @@ export function BucketsHomeView({
 
       {/* Buckets List */}
       <section className="space-y-4">
-        <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-900 pb-2">Your Buckets</h3>
+        <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2">Your Buckets</h3>
         <div className="grid grid-cols-1 gap-3">
           {sortedBuckets.length === 0 ? (
             <div className="text-center py-12 brutal-card bg-zinc-100 border-dashed">
@@ -356,7 +356,7 @@ export function BucketsHomeView({
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 border-2 border-zinc-900 bg-zinc-50 flex items-center justify-center">
+                    <div className="w-10 h-10 border-2 border-zinc-200 bg-zinc-50 flex items-center justify-center">
                       <Wallet className="w-5 h-5" />
                     </div>
                     <div>
@@ -386,7 +386,7 @@ export function BucketsHomeView({
                       setPersonalAlias(b.name !== b.original_name ? b.name : '');
                       setPersonalColor(b.color || '#ffffff');
                     }}
-                    className="p-2 border-2 border-zinc-900 bg-white hover:bg-zinc-50 transition-all"
+                    className="p-2 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-all"
                     title="Edit / Share"
                   >
                     <Edit2 className="w-4 h-4 text-zinc-900" />
@@ -415,7 +415,7 @@ export function BucketsHomeView({
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white border-4 border-zinc-900 z-50 p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-y-auto max-h-[90vh]"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-white border-4 border-zinc-200 z-50 p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.12)] overflow-y-auto max-h-[90vh]"
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-black uppercase tracking-tighter">Edit Bucket</h2>
@@ -424,14 +424,14 @@ export function BucketsHomeView({
                     setEditingBucket(null);
                     setShowArchiveConfirm(false);
                   }} 
-                  className="p-1 border-2 border-zinc-900 bg-zinc-100"
+                  className="p-1 border-2 border-zinc-200 bg-zinc-100"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="space-y-4 mb-8 pb-8 border-b-2 border-zinc-100">
-                <div className="bg-zinc-50 p-3 border-2 border-zinc-900">
+                <div className="bg-zinc-50 p-3 border-2 border-zinc-200">
                   <label className="block text-[10px] font-black uppercase mb-1 text-zinc-500">Original Name (Set by Owner)</label>
                   <div className="font-bold text-sm">{editingBucket.original_name || editingBucket.name}</div>
                 </div>
@@ -454,7 +454,7 @@ export function BucketsHomeView({
                       type="color"
                       value={personalColor}
                       onChange={(e) => setPersonalColor(e.target.value)}
-                      className="w-12 h-12 p-1 border-2 border-zinc-900 cursor-pointer"
+                      className="w-12 h-12 p-1 border-2 border-zinc-200 cursor-pointer"
                     />
                     <span className="text-xs font-mono">{personalColor}</span>
                   </div>
@@ -503,13 +503,13 @@ export function BucketsHomeView({
                         type="button"
                         onClick={() => setShowArchiveConfirm(true)}
                         disabled={loading}
-                        className="w-full flex items-center justify-center gap-2 p-3 border-2 border-zinc-900 bg-white hover:bg-zinc-50 transition-all font-black uppercase text-xs disabled:opacity-50"
+                        className="w-full flex items-center justify-center gap-2 p-3 border-2 border-zinc-200 bg-white hover:bg-zinc-50 transition-all font-black uppercase text-xs disabled:opacity-50"
                       >
                         <Archive className="w-4 h-4" />
                         Archive Bucket
                       </button>
                     ) : (
-                      <div className="space-y-3 p-4 bg-zinc-50 border-2 border-zinc-900">
+                      <div className="space-y-3 p-4 bg-zinc-50 border-2 border-zinc-200">
                         <p className="text-[10px] font-black uppercase text-center">Are you sure? This moves it to Archive.</p>
                         <div className="flex gap-2">
                           <button

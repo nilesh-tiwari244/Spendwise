@@ -112,7 +112,7 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
             id="all-checkbox"
             checked={isAllChecked}
             onChange={handleAllChange}
-            className="w-5 h-5 border-2 border-zinc-900 rounded-none accent-zinc-900"
+            className="w-5 h-5 border-2 border-zinc-200 rounded-none accent-zinc-900"
           />
           <label htmlFor="all-checkbox" className="font-black uppercase text-sm cursor-pointer">
             All Time
@@ -164,7 +164,7 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
 
       <div className="brutal-card bg-white overflow-hidden">
         {/* Restored py-1 for compact header */}
-        <div className="grid grid-cols-2 bg-zinc-100 border-b-2 border-zinc-900 pl-1 pr-4 py-1">
+        <div className="grid grid-cols-2 bg-zinc-100 border-b-2 border-zinc-200 pl-1 pr-4 py-1">
           <div className="text-xs font-black uppercase tracking-widest pl-2">Categories</div>
           <div className="text-xs font-black uppercase tracking-widest text-right">Total</div>
         </div>

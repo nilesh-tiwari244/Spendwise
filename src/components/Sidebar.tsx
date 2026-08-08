@@ -51,11 +51,11 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
             animate={{ x: 0 }} //[cite: 14]
             exit={{ x: '-100%' }} //[cite: 14]
             transition={{ type: 'spring', damping: 25, stiffness: 200 }} //[cite: 14]
-            className="fixed top-0 left-0 bottom-0 w-64 bg-white border-r-4 border-zinc-900 z-50 p-6 flex flex-col" //[cite: 14]
+            className="fixed top-0 left-0 bottom-0 w-64 bg-white border-r-4 border-zinc-200 z-50 p-6 flex flex-col" //[cite: 14]
           >
             <div className="flex justify-between items-center mb-10">
               <h2 className="text-2xl font-black uppercase tracking-tighter">Menu</h2> {/*[cite: 14] */}
-              <button onClick={onClose} className="p-2 border-2 border-zinc-900 bg-zinc-100"> {/*[cite: 14] */}
+              <button onClick={onClose} className="p-2 border-2 border-zinc-200 bg-zinc-100"> {/*[cite: 14] */}
                 <X className="w-5 h-5" /> {/*[cite: 14] */}
               </button>
             </div>
@@ -70,8 +70,8 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
                     "w-full flex items-center gap-4 p-4 border-2 transition-all font-black uppercase text-sm", //[cite: 14]
                     "active:scale-95 active:translate-x-[2px] active:translate-y-[2px]", // Custom interactive click bounce style[cite: 9]
                     isActive //[cite: 9]
-                      ? "bg-zinc-900 text-white border-zinc-900 translate-x-1 -translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" //[cite: 14]
-                      : "bg-white text-zinc-900 border-zinc-900 hover:bg-zinc-50" //[cite: 14]
+                      ? "bg-zinc-900 text-white border-zinc-200 translate-x-1 -translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)]" //[cite: 14]
+                      : "bg-white text-zinc-900 border-zinc-200 hover:bg-zinc-50" //[cite: 14]
                   )}
                 >
                   <item.icon className="w-5 h-5" /> {/*[cite: 14] */}
@@ -86,7 +86,7 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
                 disabled={isExporting}
                 aria-busy={isExporting}
                 className={cn(
-                  "w-full flex items-center gap-4 p-4 border-2 border-zinc-900 font-black uppercase text-sm transition-all", //[cite: 14]
+                  "w-full flex items-center gap-4 p-4 border-2 border-zinc-200 font-black uppercase text-sm transition-all", //[cite: 14]
                   isExporting
                     ? "bg-zinc-200 text-zinc-500 cursor-not-allowed"
                     : "bg-zinc-50 text-zinc-900 hover:bg-zinc-100" //[cite: 14]
@@ -108,8 +108,8 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
                 "w-full flex items-center gap-4 p-4 border-2 transition-all font-black uppercase text-sm mb-2", //[cite: 14]
                 "active:scale-95 active:translate-x-[2px] active:translate-y-[2px]", //[cite: 9]
                 isActive //[cite: 9]
-                  ? "bg-zinc-900 text-white border-zinc-900 translate-x-1 -translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" //[cite: 14]
-                  : "bg-white text-zinc-900 border-zinc-900 hover:bg-zinc-50" //[cite: 14]
+                  ? "bg-zinc-900 text-white border-zinc-200 translate-x-1 -translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.12)]" //[cite: 14]
+                  : "bg-white text-zinc-900 border-zinc-200 hover:bg-zinc-50" //[cite: 14]
               )}
             >
               <UserCircle className="w-5 h-5" /> {/*[cite: 14] */}
@@ -122,7 +122,7 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
                 onLogout(); //[cite: 14]
                 onClose(); //[cite: 14]
               }}
-              className="w-full flex items-center gap-4 p-4 border-2 border-zinc-900 bg-red-50 text-red-600 font-black uppercase text-sm hover:bg-red-100 transition-all" //[cite: 14]
+              className="w-full flex items-center gap-4 p-4 border-2 border-zinc-200 bg-red-50 text-red-600 font-black uppercase text-sm hover:bg-red-100 transition-all" //[cite: 14]
             >
               <LogOut className="w-5 h-5" /> {/*[cite: 14] */}
               Logout {/*[cite: 14] */}

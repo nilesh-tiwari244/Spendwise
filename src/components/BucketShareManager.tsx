@@ -135,7 +135,7 @@ export function BucketShareManager({ bucket, profiles, onClose, onTransferOwners
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-black uppercase tracking-tighter">Share Bucket</h3>
-        <button onClick={onClose} className="p-1 border-2 border-zinc-900 bg-zinc-100">
+        <button onClick={onClose} className="p-1 border-2 border-zinc-200 bg-zinc-100">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -155,7 +155,7 @@ export function BucketShareManager({ bucket, profiles, onClose, onTransferOwners
 
         <div>
           <label className="block text-[10px] font-black uppercase mb-1">Access Level</label>
-          <div className="flex border-2 border-zinc-900">
+          <div className="flex border-2 border-zinc-200">
             <button
               type="button"
               onClick={() => setAccessLevel('view')}
@@ -218,7 +218,7 @@ export function BucketShareManager({ bucket, profiles, onClose, onTransferOwners
       </form>
 
       <div className="space-y-3">
-        <h4 className="text-[10px] font-black uppercase tracking-widest border-b-2 border-zinc-900 pb-1">Current Access</h4>
+        <h4 className="text-[10px] font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-1">Current Access</h4>
         <div className="space-y-2">
           {activeShares.length === 0 ? (
             <p className="text-[10px] font-bold uppercase text-zinc-400 text-center py-4">Not shared with anyone</p>
@@ -226,7 +226,7 @@ export function BucketShareManager({ bucket, profiles, onClose, onTransferOwners
             activeShares.map((s) => (
               <div key={s.id} className="brutal-card p-3 bg-white flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 border-2 border-zinc-900 bg-zinc-50 flex items-center justify-center">
+                  <div className="w-8 h-8 border-2 border-zinc-200 bg-zinc-50 flex items-center justify-center">
                     <Mail className="w-4 h-4" />
                   </div>
                   <div>

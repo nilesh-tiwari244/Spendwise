@@ -22,19 +22,32 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
   const [dbOffset, setDbOffset] = useState(0); 
   
   const observerTarget = useRef<HTMLDivElement>(null);
+  // Ids App.tsx's fetch window returned last time. Used to tell "fell out of
+  // the window because it was deleted elsewhere" apart from "was only ever
+  // loaded further down via infinite scroll and isn't in the window at all".
+  const knownWindowIdsRef = useRef<Set<string>>(new Set());
 
   // 1. Sync the initial transactions passed from App.tsx (Instant UI Load)
   useEffect(() => {
+    const incomingIds = new Set(transactions.map(t => t.id));
+
     setLocalTransactions(prev => {
       const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
+      prev.forEach(t => {
+        if (knownWindowIdsRef.current.has(t.id) && !incomingIds.has(t.id)) {
+          map.delete(t.id);
+        }
+      });
       transactions.forEach(t => map.set(t.id, t));
-      
+
       return Array.from(map.values()).sort((a, b) => {
         const timeA = new Date(a.updated_at || a.created_at).getTime();
         const timeB = new Date(b.updated_at || b.created_at).getTime();
         return timeB - timeA;
       });
     });
+
+    knownWindowIdsRef.current = incomingIds;
   }, [transactions]);
 
   // 2. Fetch rows sequentially using our dedicated dbOffset tracker
@@ -161,7 +174,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
                     <div className={cn(
-                      "w-14 h-[72px] border-2 border-zinc-900 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                      "w-14 h-[72px] border-2 border-zinc-200 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                       t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                     )}>
                       <span className="text-base">{dateParts.day}</span>
@@ -172,10 +185,10 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                          <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                          <span className="text-[8px] font-black uppercase bg-zinc-900 text-white px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
                             {bucket?.name || 'No Bucket'}
                           </span>
-                          <div className="border-2 border-zinc-900 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                          <div className="border-2 border-zinc-200 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
                             {t.category?.name || '---'}
                           </div>
                           {t.deleted_at && (

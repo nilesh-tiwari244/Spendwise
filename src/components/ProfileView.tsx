@@ -107,7 +107,7 @@ export function ProfileView({ session, onBack, onUpdateName }: ProfileViewProps)
       </div>
 
       <div className="brutal-card bg-white p-6 space-y-6">
-        <div className="flex items-center gap-4 p-4 bg-zinc-50 border-2 border-zinc-900">
+        <div className="flex items-center gap-4 p-4 bg-zinc-50 border-2 border-zinc-200">
           <div className="w-12 h-12 bg-zinc-900 border-2 border-white flex items-center justify-center">
             <User className="w-6 h-6 text-white" />
           </div>

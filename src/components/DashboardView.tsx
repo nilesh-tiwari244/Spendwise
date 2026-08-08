@@ -71,19 +71,27 @@ export function DashboardView({
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const observerTarget = useRef<HTMLDivElement>(null);
+  // Ids App.tsx's fetch window returned last time. Used to tell "fell out of
+  // the window because it was deleted elsewhere" apart from "was only ever
+  // loaded further down via infinite scroll and isn't in the window at all".
+  const knownWindowIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setLocalTransactions([]);
     setHasMore(true);
     setIsFetchingMore(false);
+    knownWindowIdsRef.current = new Set();
   }, [bucket.id]);
 
   useEffect(() => {
+    const incomingIds = new Set(transactions.map(t => t.id));
+
     setLocalTransactions(prev => {
       const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
-      const incomingIds = new Set(transactions.map(t => t.id));
       prev.forEach(t => {
-        if (t.is_optimistic && !incomingIds.has(t.id)) {
+        const isStaleOptimistic = t.is_optimistic && !incomingIds.has(t.id);
+        const droppedFromWindow = knownWindowIdsRef.current.has(t.id) && !incomingIds.has(t.id);
+        if (isStaleOptimistic || droppedFromWindow) {
           map.delete(t.id);
         }
       });
@@ -94,6 +102,8 @@ export function DashboardView({
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
     });
+
+    knownWindowIdsRef.current = incomingIds;
   }, [transactions]);
 
   const loadMore = async () => {
@@ -219,7 +229,7 @@ export function DashboardView({
 
       {/* Transactions List */}
       <section className="space-y-2">
-        <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-900 pb-2">
+        <h3 className="text-xs font-black uppercase tracking-widest border-b-2 border-zinc-200 pb-2">
           Recent Transactions — <span className="text-zinc-500">{bucket.name}</span>
         </h3>
         
@@ -260,7 +270,7 @@ export function DashboardView({
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
                     <div className={cn(
-                      "w-14 h-[72px] border-2 border-zinc-900 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                      "w-14 h-[72px] border-2 border-zinc-200 flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
                       t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                     )}>
                       <span className="text-base">{dateParts.day}</span>
@@ -271,7 +281,7 @@ export function DashboardView({
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2">
-                          <div className="border-2 border-zinc-900 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                          <div className="border-2 border-zinc-200 px-2 py-0.5 inline-block text-[10px] font-black text-zinc-600 bg-white shadow-[1px_1px_0px_0px_rgba(0,0,0,0.12)]">
                             {t.category?.name || '---'}
                           </div>
                           {t.file_url && <Paperclip className="w-3 h-3 text-zinc-400 flex-shrink-0" />}
@@ -322,7 +332,7 @@ export function DashboardView({
                           e.stopPropagation();
                           onEditTransaction(t);
                         }}
-                        className="w-10 h-10 border-2 border-zinc-900 bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:bg-zinc-200 touch-manipulation"
+                        className="w-10 h-10 border-2 border-zinc-200 bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)] active:bg-zinc-200 touch-manipulation"
                       >
                         <Edit2 className="w-5 h-5 text-zinc-900" />
                       </button>
