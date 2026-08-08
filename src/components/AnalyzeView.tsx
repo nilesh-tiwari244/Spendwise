@@ -1,9 +1,12 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { format } from 'date-fns';
 import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
 import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay } from '../lib/utils';
 import { fetchAllRows } from '../lib/fetchAll';
-import { ArrowLeft, Search as SearchIcon, Tag, X, PieChart, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2 } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, Tag, X, PieChart, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Scale } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RunningBalanceChart } from './RunningBalanceChart';
+import { AnalyzePrintStatement } from './AnalyzePrintStatement';
 
 export type AnalyzeSnapshot = {
   keyword: string;
@@ -16,6 +19,7 @@ export type AnalyzeSnapshot = {
   selectedBucketIds: string[];
   isAnalyzed: boolean;
   analyzedTransactions: Transaction[];
+  openingBalance: number;
 };
 
 interface AnalyzeViewProps {
@@ -79,16 +83,20 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   const [isAnalyzed, setIsAnalyzed] = useState(persistedState?.isAnalyzed ?? false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzedTransactions, setAnalyzedTransactions] = useState<Transaction[]>(persistedState?.analyzedTransactions ?? []);
+  // Sum of everything before the filtered start date (same bucket/category
+  // scope), so a date-ranged print statement doesn't silently drop prior
+  // history - only meaningful when a start date is actually applied.
+  const [openingBalance, setOpeningBalance] = useState(persistedState?.openingBalance ?? 0);
 
   // Keep the parent's snapshot in sync so this state survives an
   // unmount/remount round-trip (e.g. navigating to view a transaction).
   useEffect(() => {
     onPersistedStateChange({
       keyword, categoryId, categorySearch, startDate, endDate,
-      minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions
+      minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyword, categoryId, categorySearch, startDate, endDate, minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions]);
+  }, [keyword, categoryId, categorySearch, startDate, endDate, minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance]);
 
   const uniqueCategories = useMemo(() => {
     if (selectedBucket) return categories.filter(c => c.bucket_id === selectedBucket.id);
@@ -122,34 +130,29 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
 const runAnalysis = async () => {
     setIsAnalyzing(true);
 
+    const resolvedBucketIds = selectedBucketIds.length > 0 ? selectedBucketIds : buckets.map(b => b.id);
+
+    // The dropdown dedupes categories by name, but each bucket has its own
+    // category row. Expand the picked id to every id with the same name so
+    // the filter matches what the label promises. Safe for the Summary
+    // drill-down because that path pre-selects a single bucket.
+    const matchingCategoryIds = categoryId
+      ? (() => {
+          const selectedName = categories.find(c => c.id === categoryId)?.name;
+          return selectedName
+            ? categories.filter(c => c.name.toLowerCase() === selectedName.toLowerCase()).map(c => c.id)
+            : [categoryId];
+        })()
+      : null;
+
     const buildQuery = () => {
       let query = supabase
         .from('transactions')
         .select('*, category:categories(*)')
-        .is('deleted_at', null);
+        .is('deleted_at', null)
+        .in('bucket_id', resolvedBucketIds);
 
-      // Apply Bucket Filters
-      if (selectedBucketIds.length > 0) {
-        query = query.in('bucket_id', selectedBucketIds);
-      } else {
-        const activeBucketIds = buckets.map(b => b.id);
-        query = query.in('bucket_id', activeBucketIds);
-      }
-
-      // Apply Exact Filters
-      // The dropdown dedupes categories by name, but each bucket has its own
-      // category row. Expand the picked id to every id with the same name so
-      // the filter matches what the label promises. Safe for the Summary
-      // drill-down because that path pre-selects a single bucket.
-      if (categoryId) {
-        const selectedName = categories.find(c => c.id === categoryId)?.name;
-        const matchingIds = selectedName
-          ? categories
-              .filter(c => c.name.toLowerCase() === selectedName.toLowerCase())
-              .map(c => c.id)
-          : [categoryId];
-        query = query.in('category_id', matchingIds);
-      }
+      if (matchingCategoryIds) query = query.in('category_id', matchingCategoryIds);
       if (startDate) query = query.gte('date', startDate);
       if (endDate) query = query.lte('date', endDate + 'T23:59:59');
       if (minAmount) query = query.gte('amount', minAmount);
@@ -166,6 +169,27 @@ const runAnalysis = async () => {
       const data = await fetchAllRows<Transaction>(buildQuery);
       setAnalyzedTransactions(data);
       setIsAnalyzed(true);
+
+      // Opening balance: everything before the filtered start date, same
+      // bucket/category scope, so a date-ranged print statement doesn't
+      // silently drop prior history. Only meaningful when a start date is
+      // actually applied - "all time" has nothing to carry forward.
+      if (startDate) {
+        const buildOpeningQuery = () => {
+          let q = supabase
+            .from('transactions')
+            .select('type, amount')
+            .is('deleted_at', null)
+            .in('bucket_id', resolvedBucketIds)
+            .lt('date', startDate);
+          if (matchingCategoryIds) q = q.in('category_id', matchingCategoryIds);
+          return q;
+        };
+        const openingRows = await fetchAllRows<{ id?: string; type: 'Credit' | 'Debit'; amount: number }>(buildOpeningQuery);
+        setOpeningBalance(openingRows.reduce((sum, t) => sum + (t.type === 'Credit' ? Number(t.amount) : -Number(t.amount)), 0));
+      } else {
+        setOpeningBalance(0);
+      }
     } catch (err) {
       console.error('Analysis failed:', err);
     } finally {
@@ -191,6 +215,32 @@ const runAnalysis = async () => {
     return { credit, debit, net: credit - debit };
   }, [analyzedTransactions]);
 
+  // Only unambiguous when the results are scoped to exactly one bucket and
+  // one specific category (e.g. one "person" in a loan-tracking bucket) -
+  // otherwise a running total would mix unrelated categories/buckets together.
+  const isSingleCategoryTracking = selectedBucketIds.length === 1 && !!categoryId;
+
+  const runningBalance = useMemo(() => {
+    if (!isSingleCategoryTracking || analyzedTransactions.length === 0) return null;
+
+    const chronological = [...analyzedTransactions].sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
+    const byTransactionId = new Map<string, number>();
+    const points: { date: string; balance: number }[] = [];
+    let balance = 0;
+    chronological.forEach(t => {
+      balance += t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
+      byTransactionId.set(t.id, balance);
+      points.push({ date: t.date, balance });
+    });
+
+    return { byTransactionId, points, final: balance };
+  }, [isSingleCategoryTracking, analyzedTransactions]);
+
   const clearFilters = () => {
     setKeyword('');
     setCategoryId('');
@@ -202,6 +252,7 @@ const runAnalysis = async () => {
     setSelectedBucketIds(selectedBucket ? [selectedBucket.id] : []);
     setIsAnalyzed(false);
     setAnalyzedTransactions([]);
+    setOpeningBalance(0);
   };
 
   const toggleBucket = (id: string) => {
@@ -222,6 +273,31 @@ const runAnalysis = async () => {
       return bucket?.user_id === user.id;
     });
   }, [analyzedTransactions, buckets, user.id, isAnalyzed]);
+
+  const printTitle = useMemo(() => {
+    if (isSingleCategoryTracking) {
+      const bucketName = buckets.find(b => b.id === selectedBucketIds[0])?.name || 'Bucket';
+      const categoryName = categories.find(c => c.id === categoryId)?.name || 'Category';
+      return `${bucketName} — ${categoryName}`;
+    }
+    if (selectedBucketIds.length === 1) {
+      return buckets.find(b => b.id === selectedBucketIds[0])?.name || 'Analysis';
+    }
+    if (selectedBucketIds.length > 1) return 'Multiple Buckets';
+    return 'All Buckets';
+  }, [isSingleCategoryTracking, selectedBucketIds, buckets, categoryId, categories]);
+
+  const printSubject = useMemo(() => {
+    if (isSingleCategoryTracking) return categories.find(c => c.id === categoryId)?.name || 'This account';
+    return 'This account';
+  }, [isSingleCategoryTracking, categoryId, categories]);
+
+  const printDateRangeLabel = useMemo(() => {
+    if (startDate && endDate) return `(${format(new Date(startDate), 'dd MMM yyyy')} - ${format(new Date(endDate), 'dd MMM yyyy')})`;
+    if (startDate) return `(From ${format(new Date(startDate), 'dd MMM yyyy')})`;
+    if (endDate) return `(Until ${format(new Date(endDate), 'dd MMM yyyy')})`;
+    return '(All Time)';
+  }, [startDate, endDate]);
 
   return (
     <div className="space-y-6 pb-32">
@@ -414,10 +490,11 @@ const runAnalysis = async () => {
       </div>
 
       {isAnalyzed && (
-        <motion.div 
+        <>
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-6"
+          className="space-y-6 print:hidden"
         >
           <div className="space-y-4">
             <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
@@ -475,11 +552,29 @@ const runAnalysis = async () => {
             </div>
           </div>
 
+          {runningBalance && runningBalance.points.length >= 2 && (
+            <div className="space-y-3">
+              <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
+                <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                  <Scale className="w-4 h-4" />
+                  Running Balance
+                </h3>
+                <span className={cn(
+                  "text-sm font-black",
+                  runningBalance.final > 0 ? "text-emerald-600" : runningBalance.final < 0 ? "text-rose-600" : "text-zinc-900"
+                )}>
+                  {formatCurrency(runningBalance.final)}
+                </span>
+              </div>
+              <RunningBalanceChart points={runningBalance.points} />
+            </div>
+          )}
+
           <div className="space-y-4">
             <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
               <h3 className="text-xs font-black uppercase tracking-widest">Transactions</h3>
             </div>
-            
+
             <div className="space-y-3">
               {analyzedTransactions.length === 0 ? (
                 <div className="text-center py-8 brutal-card bg-zinc-100 border-dashed">
@@ -561,6 +656,16 @@ const runAnalysis = async () => {
                                 UPDATED ON:- {formattedUpdatedDate}
                               </div>
                             )}
+
+                            {runningBalance?.byTransactionId.has(t.id) && (
+                              <div className={cn(
+                                "text-[10px] font-black uppercase break-all",
+                                (runningBalance.byTransactionId.get(t.id) || 0) > 0 ? "text-emerald-600" :
+                                (runningBalance.byTransactionId.get(t.id) || 0) < 0 ? "text-rose-600" : "text-zinc-500"
+                              )}>
+                                BALANCE:- {formatCurrency(runningBalance.byTransactionId.get(t.id) || 0)}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -596,6 +701,16 @@ const runAnalysis = async () => {
             )}
           </div>
         </motion.div>
+        <AnalyzePrintStatement
+          title={printTitle}
+          subject={printSubject}
+          dateRangeLabel={printDateRangeLabel}
+          transactions={analyzedTransactions}
+          openingBalance={openingBalance}
+          hasOpeningBalance={!!startDate}
+          showRunningBalance={isSingleCategoryTracking}
+        />
+        </>
       )}
     </div>
   );
