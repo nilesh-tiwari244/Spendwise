@@ -461,6 +461,22 @@ DROP POLICY IF EXISTS "transactions_insert" ON transactions;
 -- pending invites need to show the inviter's name before being accepted.
 DROP POLICY IF EXISTS "Users can view all profiles" ON profiles;
 DROP POLICY IF EXISTS "Users can view relevant profiles" ON profiles;
+
+-- FOLLOW-UP: the bucket_shares-only version above missed a real case -
+-- DashboardView/ActivityLogView show "ADDED BY: <name> (Removed)" for past
+-- collaborators whose bucket_shares row was later hard-deleted (declining/
+-- removing a share does a real DELETE, not a status change - see
+-- BucketsHomeView's handleDeclineShare). Once that row is gone there's no
+-- bucket_shares trace left, so those historical attributions silently fell
+-- back to a raw email instead of the display name. Also, bucket_shares only
+-- ever records owner<->sharee pairs, never sharee<->sharee, so a view-only
+-- collaborator (e.g. Roy Gemini) never had a direct bucket_shares row with a
+-- co-editor (e.g. Binita/Nikita) to begin with, regardless of removal.
+-- Widen it: also allow seeing a profile if that email/id shows up as the
+-- actor on a transaction or activity log in a bucket you can currently see
+-- (owned by you, or shared with you at any access level) - this covers
+-- "anyone who's ever touched data you have access to" without reopening the
+-- full user directory.
 CREATE POLICY "Users can view relevant profiles"
   ON profiles FOR SELECT
   USING (
@@ -469,5 +485,31 @@ CREATE POLICY "Users can view relevant profiles"
       SELECT 1 FROM bucket_shares bs
       WHERE (bs.shared_by_email = (auth.jwt() ->> 'email') AND bs.shared_with_email = profiles.email)
          OR (bs.shared_with_email = (auth.jwt() ->> 'email') AND bs.shared_by_email = profiles.email)
+    )
+    OR EXISTS (
+      SELECT 1 FROM transactions t
+      WHERE t.last_edited_by = profiles.email
+      AND (
+        EXISTS (SELECT 1 FROM buckets b WHERE b.id = t.bucket_id AND b.user_id = auth.uid())
+        OR EXISTS (
+          SELECT 1 FROM bucket_shares bs2
+          WHERE bs2.bucket_id = t.bucket_id
+          AND bs2.shared_with_email = (auth.jwt() ->> 'email')
+          AND bs2.status = 'accepted'
+        )
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM activity_logs al
+      WHERE (al.user_email = profiles.email OR al.user_id = profiles.id)
+      AND (
+        EXISTS (SELECT 1 FROM buckets b WHERE b.id = al.bucket_id AND b.user_id = auth.uid())
+        OR EXISTS (
+          SELECT 1 FROM bucket_shares bs3
+          WHERE bs3.bucket_id = al.bucket_id
+          AND bs3.shared_with_email = (auth.jwt() ->> 'email')
+          AND bs3.status = 'accepted'
+        )
+      )
     )
   );
