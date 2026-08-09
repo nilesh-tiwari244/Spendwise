@@ -513,3 +513,55 @@ CREATE POLICY "Users can view relevant profiles"
       )
     )
   );
+
+-- ============================================================================
+-- SIGNUP: mandatory display name (2026-08-09)
+-- ============================================================================
+-- The signup form now collects a display name and passes it via
+-- supabase.auth.signUp's options.data, which lands in auth.users'
+-- raw_user_meta_data immediately - even before email confirmation, when
+-- there's no authenticated session yet for the client to write its own
+-- `profiles` row (RLS would reject an anonymous insert). This trigger
+-- creates the profiles row itself, as the table owner, the moment the
+-- auth.users row is created, so every new signup has a profile with a
+-- display name from day one with no separate "please set a name" step.
+-- SET search_path guards against search_path hijacking in SECURITY DEFINER
+-- functions (Postgres/Supabase best practice).
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, display_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    NULLIF(TRIM(NEW.raw_user_meta_data->>'display_name'), '')
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Character-length backstop for profiles, matching the client-side
+-- minLength/maxLength on the signup and profile-settings forms. Allows NULL
+-- so existing rows without a display_name aren't broken by this migration -
+-- the client already makes display_name mandatory going forward.
+-- NOT VALID: fully enforced on every future insert/update, but skips
+-- checking pre-existing rows against it, so this can't fail against
+-- historical data we haven't audited. Run VALIDATE CONSTRAINT separately
+-- later if you want to confirm/clean up old data too.
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_display_name_length_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_display_name_length_check
+  CHECK (display_name IS NULL OR char_length(display_name) BETWEEN 2 AND 50) NOT VALID;
+
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_email_length_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_email_length_check
+  CHECK (char_length(email) <= 254) NOT VALID;

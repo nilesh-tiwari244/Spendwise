@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { cn } from '../lib/utils';
 
 interface AuthViewProps {
   onRecoveryComplete?: () => void;
@@ -11,7 +12,10 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -53,11 +57,14 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
-        const { error } = await supabase.auth.signUp({ 
-          email, 
+        const { error } = await supabase.auth.signUp({
+          email,
           password,
           options: {
-            emailRedirectTo: window.location.origin
+            emailRedirectTo: window.location.origin,
+            data: {
+              display_name: displayName.trim()
+            }
           }
         });
         if (error) throw error;
@@ -73,9 +80,15 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-zinc-50">
       <div className="w-full max-w-sm brutal-card p-8">
-        <h2 className="text-3xl font-black uppercase tracking-tighter mb-8">
-          {isRecovery ? 'New Password' : (isForgotPassword ? 'Reset Password' : (isLogin ? 'Welcome Back' : 'Join Us'))}
+        <h2 className={cn("text-3xl font-black uppercase tracking-tighter", isLogin || isForgotPassword || isRecovery ? "mb-8" : "mb-2")}>
+          {isRecovery ? 'New Password' : (isForgotPassword ? 'Reset Password' : (isLogin ? 'Welcome Back' : 'Create Your Account'))}
         </h2>
+
+        {!isLogin && !isForgotPassword && !isRecovery && (
+          <p className="text-xs font-bold text-zinc-500 mb-8 leading-relaxed">
+            SpendWise is a clean, distraction-free way to track spending — solo, or shared with people you trust.
+          </p>
+        )}
 
         {isForgotPassword && !message && (
           <div className="mb-6 p-3 rounded-2xl bg-zinc-100 flex gap-2 items-start">
@@ -90,14 +103,24 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
           {isRecovery ? (
             <div>
               <label className="block text-xs font-black uppercase mb-1">New Password</label>
-              <input
-                type="password"
-                required
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="brutal-input"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="brutal-input pr-11"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-900 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -106,6 +129,7 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
                 <input
                   type="email"
                   required
+                  maxLength={254}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="brutal-input"
@@ -113,17 +137,46 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
                 />
               </div>
 
+              {!isLogin && !isForgotPassword && (
+                <div>
+                  <label className="block text-xs font-black uppercase mb-1">Display Name</label>
+                  <input
+                    type="text"
+                    required
+                    minLength={2}
+                    maxLength={50}
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    className="brutal-input"
+                    placeholder="Your full name"
+                  />
+                  <p className="mt-2 text-[10px] text-zinc-400 font-bold uppercase">
+                    Shown to collaborators on transactions you add or edit.
+                  </p>
+                </div>
+              )}
+
               {!isForgotPassword && (
                 <div>
                   <label className="block text-xs font-black uppercase mb-1">Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="brutal-input"
-                    placeholder="••••••••"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="brutal-input pr-11"
+                      placeholder="••••••••"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-900 transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               )}
             </>
@@ -153,6 +206,8 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
               onClick={() => {
                 setIsLogin(!isLogin);
                 setIsForgotPassword(false);
+                setError(null);
+                setDisplayName('');
               }}
               className="block w-full text-xs font-bold uppercase underline underline-offset-4 hover:text-zinc-600"
             >

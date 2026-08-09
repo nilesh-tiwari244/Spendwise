@@ -216,12 +216,45 @@ export default function App() {
       setIsRecovery(true);
     }
 
+    // The SWR cache above (and this component's own state, once populated)
+    // has no per-user boundary - it's plain localStorage/React state keyed
+    // by nothing. If the session transitions to a different user (or to
+    // logged-out) than whichever account it was last fetched for, wipe both
+    // before that transition is allowed to render, so one account's data
+    // can never flash under a different account's session while the new
+    // fetch is in flight.
+    const clearStaleCacheIfUserChanged = (newSession: any) => {
+      const cachedUid = localStorage.getItem('sw_cache_uid');
+      const newUid = newSession?.user?.id || null;
+      if (cachedUid === newUid) return;
+
+      try {
+        localStorage.removeItem('sw_buckets');
+        localStorage.removeItem('sw_bucketTotals');
+        localStorage.removeItem('sw_grandTotal');
+        localStorage.removeItem('sw_cache_uid');
+      } catch (e) {
+        console.warn('Failed to clear cache', e);
+      }
+      setBuckets([]);
+      setTransactions([]);
+      setCategories([]);
+      setBucketTotals({});
+      setGrandTotal(0);
+      setOrphanedCount(0);
+      setShares([]);
+      setPendingShares([]);
+      setProfiles({});
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      clearStaleCacheIfUserChanged(session);
       setSession(session);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      clearStaleCacheIfUserChanged(session);
       setSession(session);
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecovery(true);
@@ -331,6 +364,7 @@ export default function App() {
         localStorage.setItem('sw_buckets', JSON.stringify(allBuckets));
         localStorage.setItem('sw_bucketTotals', JSON.stringify(totalsMap));
         localStorage.setItem('sw_grandTotal', JSON.stringify(Number(grandTotalRes.data || 0)));
+        localStorage.setItem('sw_cache_uid', session.user.id);
       } catch (e) {
         console.warn('Failed to save cache', e);
       }
