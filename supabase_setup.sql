@@ -376,23 +376,18 @@ CREATE POLICY "Users can delete activity logs for their buckets"
     )
   );
 
--- MEDIUM: categories' shared-editor policy had no WITH CHECK, so a shared
--- editor could insert a category with a spoofed user_id (defaulted to the
--- USING clause, which never constrains the new row's user_id). Tighten it.
+-- MEDIUM: categories' shared-editor ALL policy had no WITH CHECK, so a
+-- shared editor could insert a category with a spoofed user_id (defaulted to
+-- the USING clause, which never constrains the new row's user_id).
+-- IMPORTANT: this must be split into per-command policies rather than one
+-- ALL policy with a WITH CHECK - a single WITH CHECK applies to both INSERT
+-- and UPDATE, and renaming a category (CategoryManagerView's handleUpdate)
+-- never touches user_id, so requiring auth.uid() = user_id on UPDATE would
+-- wrongly reject a shared editor renaming a category someone else created.
 DROP POLICY IF EXISTS "Users can manage categories in shared buckets with edit access" ON categories;
-CREATE POLICY "Users can manage categories in shared buckets with edit access"
-  ON categories FOR ALL
-  USING (
-    (auth.uid() = user_id) OR
-    EXISTS (SELECT 1 FROM buckets WHERE buckets.id = categories.bucket_id AND buckets.user_id = auth.uid()) OR
-    EXISTS (
-      SELECT 1 FROM bucket_shares
-      WHERE bucket_shares.bucket_id = categories.bucket_id
-      AND bucket_shares.shared_with_email = (auth.jwt() ->> 'email')
-      AND bucket_shares.status = 'accepted'
-      AND bucket_shares.access_level = 'edit'
-    )
-  )
+
+CREATE POLICY "Shared editors can insert categories with edit access"
+  ON categories FOR INSERT
   WITH CHECK (
     auth.uid() = user_id AND (
       EXISTS (SELECT 1 FROM buckets WHERE buckets.id = categories.bucket_id AND buckets.user_id = auth.uid()) OR
@@ -405,3 +400,50 @@ CREATE POLICY "Users can manage categories in shared buckets with edit access"
       )
     )
   );
+
+CREATE POLICY "Shared editors can update categories with edit access"
+  ON categories FOR UPDATE
+  USING (
+    (auth.uid() = user_id) OR
+    EXISTS (SELECT 1 FROM buckets WHERE buckets.id = categories.bucket_id AND buckets.user_id = auth.uid()) OR
+    EXISTS (
+      SELECT 1 FROM bucket_shares
+      WHERE bucket_shares.bucket_id = categories.bucket_id
+      AND bucket_shares.shared_with_email = (auth.jwt() ->> 'email')
+      AND bucket_shares.status = 'accepted'
+      AND bucket_shares.access_level = 'edit'
+    )
+  );
+
+CREATE POLICY "Shared editors can delete categories with edit access"
+  ON categories FOR DELETE
+  USING (
+    (auth.uid() = user_id) OR
+    EXISTS (SELECT 1 FROM buckets WHERE buckets.id = categories.bucket_id AND buckets.user_id = auth.uid()) OR
+    EXISTS (
+      SELECT 1 FROM bucket_shares
+      WHERE bucket_shares.bucket_id = categories.bucket_id
+      AND bucket_shares.shared_with_email = (auth.jwt() ->> 'email')
+      AND bucket_shares.status = 'accepted'
+      AND bucket_shares.access_level = 'edit'
+    )
+  );
+-- (SELECT is untouched - "Users can see categories in shared buckets" already
+-- covers it and isn't being dropped here.)
+
+-- CRITICAL (found while re-checking the fix above): categories and
+-- transactions each have a redundant pair of narrow INSERT policies whose
+-- WITH CHECK is only `auth.uid() = user_id` - they never verify the target
+-- bucket_id belongs to a bucket the inserter owns or has edit access to.
+-- Since permissive policies OR together, this lets ANY signed-up user insert
+-- fake categories or transactions into ANY OTHER USER'S bucket, with no
+-- sharing relationship required, by setting user_id to themselves and
+-- bucket_id to someone else's bucket. For transactions this means a stranger
+-- can inject fabricated debits/credits into any victim's balance. These two
+-- policies per table add no legitimate capability beyond what the properly
+-- bucket-scoped policies already allow (confirmed above/elsewhere in this
+-- file), so they are simply dropped, not replaced.
+DROP POLICY IF EXISTS "Users can only insert their own categories" ON categories;
+DROP POLICY IF EXISTS "categories_insert" ON categories;
+DROP POLICY IF EXISTS "Users can only insert their own transactions" ON transactions;
+DROP POLICY IF EXISTS "transactions_insert" ON transactions;
