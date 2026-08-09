@@ -447,3 +447,27 @@ DROP POLICY IF EXISTS "Users can only insert their own categories" ON categories
 DROP POLICY IF EXISTS "categories_insert" ON categories;
 DROP POLICY IF EXISTS "Users can only insert their own transactions" ON transactions;
 DROP POLICY IF EXISTS "transactions_insert" ON transactions;
+
+-- HIGH (deferred earlier, now being fixed): profiles had two SELECT policies
+-- both with qual = true - any signed-up user could read every other user's
+-- email address via a full user-directory scrape. App.tsx's bulk
+-- `select('id, email, display_name')` (no .eq filter) relies entirely on RLS
+-- to scope this down, so tighten the policy rather than the query. Scoped to
+-- "you, or anyone you share a bucket with in either direction" so this
+-- requires NO app code changes: last_edited_by lookups, pending-invite
+-- inviter names, and collaborator display names are all mediated through
+-- bucket_shares already, so anyone who could legitimately show up in the
+-- current profiles map still will. Status is intentionally not filtered -
+-- pending invites need to show the inviter's name before being accepted.
+DROP POLICY IF EXISTS "Users can view all profiles" ON profiles;
+DROP POLICY IF EXISTS "Users can view relevant profiles" ON profiles;
+CREATE POLICY "Users can view relevant profiles"
+  ON profiles FOR SELECT
+  USING (
+    auth.uid() = id
+    OR EXISTS (
+      SELECT 1 FROM bucket_shares bs
+      WHERE (bs.shared_by_email = (auth.jwt() ->> 'email') AND bs.shared_with_email = profiles.email)
+         OR (bs.shared_with_email = (auth.jwt() ->> 'email') AND bs.shared_by_email = profiles.email)
+    )
+  );
