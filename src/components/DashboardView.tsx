@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
-import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList } from 'lucide-react';
+import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList, Search } from 'lucide-react';
 
 function getContrastColor(hexColor: string | undefined): string {
   if (!hexColor || hexColor === '#ffffff' || hexColor === 'transparent') return 'text-zinc-900';
@@ -47,19 +47,21 @@ interface DashboardViewProps {
   isLoading?: boolean;
   onEditTransaction: (transaction: Transaction) => void;
   onViewTransaction: (transaction: Transaction) => void;
+  onSearchBucket: () => void;
   totalBalance: number;
 }
 
-export function DashboardView({ 
-  transactions, 
-  bucket, 
-  shares, 
-  ownerEmail, 
-  canEdit, 
+export function DashboardView({
+  transactions,
+  bucket,
+  shares,
+  ownerEmail,
+  canEdit,
   profiles,
   isLoading,
-  onEditTransaction, 
-  onViewTransaction, 
+  onEditTransaction,
+  onViewTransaction,
+  onSearchBucket,
   totalBalance
 }: DashboardViewProps) {
   
@@ -189,26 +191,24 @@ export function DashboardView({
 
       {/* Actions */}
       <div className="grid grid-cols-2 gap-2">
-        {canEdit && (
-          <button 
-            type="button"
-            onClick={() => navigate(`/bucket/${bucket.id}/add-transaction`)} 
-            className="brutal-button flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
-          >
-            <Plus className="w-5 h-5" />
-            <span className="font-black uppercase text-sm">Add New</span>
-          </button>
-        )}
-        <button 
+        <button
           type="button"
-          onClick={() => navigate(`/bucket/${bucket.id}/activity`)} 
+          onClick={onSearchBucket}
+          className="brutal-button bg-white text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
+        >
+          <Search className="w-5 h-5" />
+          <span className="font-black uppercase text-sm">Search</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/bucket/${bucket.id}/activity`)}
           className="brutal-button bg-zinc-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
         >
           <History className="w-5 h-5" />
           <span className="font-black uppercase text-sm">Activity</span>
         </button>
         {canEdit && (
-          <button 
+          <button
             type="button"
             onClick={() => navigate(`/bucket/${bucket.id}/categories`)}
             className="brutal-button bg-white text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
@@ -217,7 +217,7 @@ export function DashboardView({
             <span className="font-black uppercase text-sm">Categories</span>
           </button>
         )}
-        <button 
+        <button
           type="button"
           onClick={() => navigate(`/bucket/${bucket.id}/summary`)}
           className="brutal-button bg-sky-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-sky-200 active:bg-sky-300 transition-colors touch-manipulation"
@@ -355,6 +355,17 @@ export function DashboardView({
           </div>
         )}
       </section>
+
+      {canEdit && (
+        <button
+          type="button"
+          onClick={() => navigate(`/bucket/${bucket.id}/add-transaction`)}
+          aria-label="Add New Transaction"
+          className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full bg-zinc-900 text-white shadow-lg hover:shadow-xl hover:bg-zinc-800 active:scale-90 transition-all flex items-center justify-center touch-manipulation"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
     </div>
   );
 }

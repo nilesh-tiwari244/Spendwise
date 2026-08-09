@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom'; //[cite: 9]
-import { X, Trash2, LogOut, PieChart, Download, Clock, Archive, UserCircle, Loader2 } from 'lucide-react'; //[cite: 14]
+import { X, Trash2, LogOut, Search, Download, Clock, Archive, UserCircle, Loader2 } from 'lucide-react'; //[cite: 14]
 import { cn } from '../lib/utils'; //[cite: 14]
 import { motion, AnimatePresence } from 'motion/react'; //[cite: 14]
 
@@ -15,7 +15,7 @@ interface SidebarProps {
 export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = false }: SidebarProps) {
   // Map items to actual application URL paths[cite: 9]
   const menuItems = [
-    { path: '/analyze', label: 'Analyze', icon: PieChart }, //[cite: 9, 14]
+    { path: '/analyze', label: 'Search', icon: Search }, //[cite: 9, 14]
     { path: '/recently-added', label: 'Recently Added', icon: Clock }, //[cite: 9, 14]
     { path: '/archive', label: 'Archive', icon: Archive }, //[cite: 9, 14]
     { path: '/deleted', label: 'Recycle Bin', icon: Trash2 }, //[cite: 9, 14]

@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
 import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay } from '../lib/utils';
 import { fetchAllRows } from '../lib/fetchAll';
-import { ArrowLeft, Search as SearchIcon, Tag, X, PieChart, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Scale } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Scale } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RunningBalanceChart } from './RunningBalanceChart';
 import { AnalyzePrintStatement } from './AnalyzePrintStatement';
@@ -281,7 +281,7 @@ const runAnalysis = async () => {
       return `${bucketName} — ${categoryName}`;
     }
     if (selectedBucketIds.length === 1) {
-      return buckets.find(b => b.id === selectedBucketIds[0])?.name || 'Analysis';
+      return buckets.find(b => b.id === selectedBucketIds[0])?.name || 'Search Results';
     }
     if (selectedBucketIds.length > 1) return 'Multiple Buckets';
     return 'All Buckets';
@@ -306,7 +306,7 @@ const runAnalysis = async () => {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3">
-          Analyze
+          Search
         </h2>
       </div>
 
@@ -483,8 +483,8 @@ const runAnalysis = async () => {
             disabled={isAnalyzing}
             className="flex-[2] brutal-button py-3 flex items-center justify-center gap-2"
           >
-            {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PieChart className="w-4 h-4" />}
-            {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+            {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <SearchIcon className="w-4 h-4" />}
+            {isAnalyzing ? 'Searching...' : 'Search'}
           </button>
         </div>
       </div>
@@ -498,7 +498,7 @@ const runAnalysis = async () => {
         >
           <div className="space-y-4">
             <div className="flex justify-between items-center pb-1">
-              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Analysis Result</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Search Results</h3>
               <span className="text-[10px] font-black uppercase text-zinc-400">{analyzedTransactions.length} transactions</span>
             </div>
 

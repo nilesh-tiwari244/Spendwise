@@ -259,6 +259,15 @@ export default function App() {
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecovery(true);
       }
+      // A fresh login should always land on Home scrolled to the top, even
+      // if the pathname was already "/" (e.g. logged out while scrolled
+      // down, then logged back in) - the pathname-keyed scroll-restoration
+      // effect below wouldn't catch that since the path never changed.
+      // SIGNED_IN specifically (not the initial-load session restore) so we
+      // don't yank scroll position around on a normal page refresh.
+      if (event === 'SIGNED_IN') {
+        window.scrollTo(0, 0);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -845,6 +854,11 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     onViewTransaction={(t) => {
                       setSelectedTransaction(t);
                       navigate(`/bucket/${bucket.id}/view-transaction`);
+                    }}
+                    onSearchBucket={() => {
+                      setAnalyzeParams({ bucketId: bucket.id });
+                      setAnalyzeSnapshot(null);
+                      navigate('/analyze');
                     }}/>
                 )}
               </BucketRouteWrapper>
@@ -1021,6 +1035,10 @@ const splitTimestamp = (ts: string | null | undefined) => {
             setEditingTransaction(null);
             setSelectedTransaction(null);
             navigate('/');
+            // navigate('/') is a no-op on location.pathname when we're
+            // already on Home, so the pathname-keyed scroll-restoration
+            // effect below won't re-fire - force it here too.
+            window.scrollTo(0, 0);
           }}
           className="w-full bg-white shadow-[0_-2px_8px_rgba(0,0,0,0.04)] px-4 py-6 flex justify-center items-center active:bg-zinc-100 transition-colors cursor-pointer touch-manipulation"
         >
