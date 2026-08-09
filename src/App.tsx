@@ -368,10 +368,11 @@ export default function App() {
           const bucketId = row?.bucket_id;
 
           if (bucketId && bucketIdsRef.current.has(bucketId) && actorEmail && actorEmail !== myEmail) {
+            const actorLabel = profilesRef.current[actorEmail] || actorEmail;
             let verb = 'updated a transaction';
             if (payload.eventType === 'INSERT') verb = 'added a transaction';
             else if (row?.deleted_at) verb = 'deleted a transaction';
-            pushToast(`${actorEmail} ${verb}`);
+            pushToast(`${actorLabel} ${verb}`);
           }
 
           debouncedFetchData();
@@ -408,9 +409,11 @@ export default function App() {
           const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
 
           if (payload.eventType === 'INSERT' && row?.status === 'pending' && row?.shared_with_email === myEmail) {
-            pushToast(`${row.shared_by_email} invited you to a bucket`);
+            const actorLabel = profilesRef.current[row.shared_by_email] || row.shared_by_email;
+            pushToast(`${actorLabel} invited you to a bucket`);
           } else if (payload.eventType === 'UPDATE' && row?.status === 'accepted' && row?.shared_by_email === myEmail) {
-            pushToast(`${row.shared_with_email} accepted your invite`);
+            const actorLabel = profilesRef.current[row.shared_with_email] || row.shared_with_email;
+            pushToast(`${actorLabel} accepted your invite`);
           }
 
           debouncedFetchData();
