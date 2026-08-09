@@ -21,10 +21,17 @@ export function CategoryManagerView({ categories, selectedBucket, onBack, onSucc
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
+    const trimmedName = newName.trim();
+    if (!trimmedName) return;
+
+    setError(null);
+
+    if (categories.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
+      setError('A category with this name already exists in this bucket.');
+      return;
+    }
 
     setLoading(true);
-    setError(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -32,32 +39,41 @@ export function CategoryManagerView({ categories, selectedBucket, onBack, onSucc
 
       const { error } = await supabase
         .from('categories')
-        .insert({ user_id: user.id, bucket_id: selectedBucket?.id, name: newName.trim() });
+        .insert({ user_id: user.id, bucket_id: selectedBucket?.id, name: trimmedName });
 
       if (error) throw error;
       setNewName('');
       onSuccess();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message.includes('duplicate key') ? 'A category with this name already exists in this bucket.' : err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleUpdate = async (id: string) => {
-    if (!editingName.trim()) return;
+    const trimmedName = editingName.trim();
+    if (!trimmedName) return;
+
+    setError(null);
+
+    if (categories.some(c => c.id !== id && c.name.toLowerCase() === trimmedName.toLowerCase())) {
+      setError('A category with this name already exists in this bucket.');
+      return;
+    }
+
     setLoading(true);
     try {
       const { error } = await supabase
         .from('categories')
-        .update({ name: editingName.trim() })
+        .update({ name: trimmedName })
         .eq('id', id);
 
       if (error) throw error;
       setEditingId(null);
       onSuccess();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message.includes('duplicate key') ? 'A category with this name already exists in this bucket.' : err.message);
     } finally {
       setLoading(false);
     }

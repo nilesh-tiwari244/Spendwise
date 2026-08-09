@@ -266,11 +266,142 @@ DROP POLICY IF EXISTS "Users can view transactions for their buckets" ON transac
 CREATE POLICY "Users can view transactions for their buckets"
   ON transactions FOR SELECT
   USING (
-    user_id = auth.uid() OR 
+    user_id = auth.uid() OR
     EXISTS (
-      SELECT 1 FROM bucket_shares 
-      WHERE bucket_id = transactions.bucket_id 
+      SELECT 1 FROM bucket_shares
+      WHERE bucket_id = transactions.bucket_id
       AND shared_with_email = (auth.jwt() ->> 'email')
       AND status = 'accepted'
+    )
+  );
+
+-- Prevent duplicate category names (case-insensitive) within the same bucket.
+-- Different buckets may still reuse the same category name.
+-- NOTE: if this fails with a "duplicate key" error, you have pre-existing
+-- duplicate category names in some bucket - rename/merge them first, then re-run.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_bucket_id_lower_name
+  ON categories (bucket_id, lower(name));
+
+-- ============================================================================
+-- SECURITY AUDIT FIXES (2026-08-09) - found by querying pg_policies directly
+-- against production. See conversation history for full findings/severities.
+-- ============================================================================
+
+-- CRITICAL: transaction_history had "qual = true" (Supabase Studio's default
+-- "Enable read access for all users" template, left unmodified) - any
+-- signed-up user could read any other user's transaction edit history by
+-- transaction_id, bypassing the entire bucket-ownership/sharing model. Scope
+-- it through the parent transaction the same way transactions itself is.
+DROP POLICY IF EXISTS "Enable read access for all users" ON transaction_history;
+CREATE POLICY "Users can view history for their own or shared transactions"
+  ON transaction_history FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM transactions t
+      WHERE t.id = transaction_history.transaction_id
+      AND (
+        t.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM bucket_shares bs
+          WHERE bs.bucket_id = t.bucket_id
+          AND bs.shared_with_email = (auth.jwt() ->> 'email')
+          AND bs.status = 'accepted'
+        )
+      )
+    )
+  );
+
+-- CRITICAL: the storage.objects INSERT policy on the 'receipts' bucket had no
+-- auth check at all (with_check = bucket_id = 'receipts') - anyone with the
+-- public anon key (visible in the client bundle) could upload arbitrary files
+-- with zero login. The other four "folder = private" policies never actually
+-- applied because the app uploads to `${user.id}/...`, not `private/...`, so
+-- they were dead weight. Replace all five with policies scoped to the path
+-- convention the app actually uses.
+DROP POLICY IF EXISTS "uploadauth 1lnm9mj_0" ON storage.objects;
+DROP POLICY IF EXISTS "Give users authenticated access to folder 1lnm9mj_0" ON storage.objects;
+DROP POLICY IF EXISTS "Give users authenticated access to folder 1lnm9mj_1" ON storage.objects;
+DROP POLICY IF EXISTS "Give users authenticated access to folder 1lnm9mj_2" ON storage.objects;
+DROP POLICY IF EXISTS "Give users authenticated access to folder 1lnm9mj_3" ON storage.objects;
+
+CREATE POLICY "Users can upload their own receipts"
+  ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'receipts'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+CREATE POLICY "Users can view their own receipt objects"
+  ON storage.objects FOR SELECT
+  USING (
+    bucket_id = 'receipts'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+-- NOTE: the receipts bucket itself is public=true, so image URLs are already
+-- readable by anyone with the link regardless of this SELECT policy (public
+-- buckets bypass RLS for the public URL endpoint). This policy only matters
+-- if you later flip the bucket to private and switch the app from
+-- getPublicUrl() to createSignedUrl().
+
+CREATE POLICY "Users can update their own receipt objects"
+  ON storage.objects FOR UPDATE
+  USING (
+    bucket_id = 'receipts'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+CREATE POLICY "Users can delete their own receipt objects"
+  ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'receipts'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- MEDIUM: the 20-log cap trigger silently deletes 0 rows in production
+-- because activity_logs is missing the DELETE policy this file already
+-- defines above - re-asserting it here so it's easy to find/re-run.
+DROP POLICY IF EXISTS "Users can delete activity logs for their buckets" ON activity_logs;
+CREATE POLICY "Users can delete activity logs for their buckets"
+  ON activity_logs FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM buckets WHERE id = activity_logs.bucket_id AND user_id = auth.uid()
+    ) OR
+    EXISTS (
+      SELECT 1 FROM bucket_shares WHERE bucket_id = activity_logs.bucket_id AND shared_with_email = (auth.jwt() ->> 'email') AND status = 'accepted'
+    )
+  );
+
+-- MEDIUM: categories' shared-editor policy had no WITH CHECK, so a shared
+-- editor could insert a category with a spoofed user_id (defaulted to the
+-- USING clause, which never constrains the new row's user_id). Tighten it.
+DROP POLICY IF EXISTS "Users can manage categories in shared buckets with edit access" ON categories;
+CREATE POLICY "Users can manage categories in shared buckets with edit access"
+  ON categories FOR ALL
+  USING (
+    (auth.uid() = user_id) OR
+    EXISTS (SELECT 1 FROM buckets WHERE buckets.id = categories.bucket_id AND buckets.user_id = auth.uid()) OR
+    EXISTS (
+      SELECT 1 FROM bucket_shares
+      WHERE bucket_shares.bucket_id = categories.bucket_id
+      AND bucket_shares.shared_with_email = (auth.jwt() ->> 'email')
+      AND bucket_shares.status = 'accepted'
+      AND bucket_shares.access_level = 'edit'
+    )
+  )
+  WITH CHECK (
+    auth.uid() = user_id AND (
+      EXISTS (SELECT 1 FROM buckets WHERE buckets.id = categories.bucket_id AND buckets.user_id = auth.uid()) OR
+      EXISTS (
+        SELECT 1 FROM bucket_shares
+        WHERE bucket_shares.bucket_id = categories.bucket_id
+        AND bucket_shares.shared_with_email = (auth.jwt() ->> 'email')
+        AND bucket_shares.status = 'accepted'
+        AND bucket_shares.access_level = 'edit'
+      )
     )
   );

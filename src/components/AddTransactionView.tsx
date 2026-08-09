@@ -113,8 +113,14 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+
+    if (parseFloat(amount) < 0) {
+      setError('Amount cannot be negative.');
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -277,6 +283,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
               <input
                 type="number"
                 step="0.01"
+                min="0"
                 required
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
