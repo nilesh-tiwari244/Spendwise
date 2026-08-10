@@ -675,3 +675,14 @@ STABLE
 AS $$
   SELECT COALESCE(SUM(balance), 0) FROM buckets WHERE archived_at IS NULL;
 $$;
+
+-- 5. Enabled Realtime on `categories` and `bucket_shares` in the dashboard
+-- (Database > Tables > Realtime toggle - not SQL, so noting it here for
+-- the record). Both tables are hard-deleted from (CategoryManagerView's
+-- delete, App.tsx's share-revoke), and default REPLICA IDENTITY only puts
+-- the primary key in payload.old on DELETE - meaning the app's realtime
+-- handlers couldn't read bucket_id/user_id/etc. off a delete event to
+-- decide who to notify. REPLICA IDENTITY FULL makes the full old row
+-- available so deletes propagate correctly, same as inserts/updates.
+ALTER TABLE categories REPLICA IDENTITY FULL;
+ALTER TABLE bucket_shares REPLICA IDENTITY FULL;
