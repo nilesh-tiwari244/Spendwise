@@ -410,15 +410,20 @@ export default function App() {
           const actorEmail = row?.last_edited_by;
           const bucketId = row?.bucket_id;
 
+          // Skip the refetch entirely when the change is our own echo - our
+          // optimistic update already reflects it, and this is the event
+          // that made every edit trigger a redundant full refetch on top of
+          // the one already done in AddTransactionView's onSuccess. Only
+          // refetch when someone else made the change, mirroring exactly
+          // the condition that decides whether to toast about it.
           if (bucketId && bucketIdsRef.current.has(bucketId) && actorEmail && actorEmail !== myEmail) {
             const actorLabel = profilesRef.current[actorEmail] || actorEmail;
             let verb = 'updated a transaction';
             if (payload.eventType === 'INSERT') verb = 'added a transaction';
             else if (row?.deleted_at) verb = 'deleted a transaction';
             pushToast(`${actorLabel} ${verb}`);
+            debouncedFetchData();
           }
-
-          debouncedFetchData();
         })
         .subscribe();
 
@@ -429,6 +434,8 @@ export default function App() {
           const bucketId = row?.bucket_id;
           const actorId = row?.user_id;
 
+          // Same self-echo skip as the transactions channel above - only
+          // refetch when someone else made the change.
           if (bucketId && bucketIdsRef.current.has(bucketId) && actorId && actorId !== myId) {
             if (payload.eventType === 'INSERT') {
               const actorLabel = profilesRef.current[actorId] || 'A collaborator';
@@ -440,9 +447,8 @@ export default function App() {
               // reliably attributed to a specific collaborator.
               pushToast('Categories were updated by a collaborator');
             }
+            debouncedFetchData();
           }
-
-          debouncedFetchData();
         })
         .subscribe();
 
@@ -893,9 +899,14 @@ const splitTimestamp = (ts: string | null | undefined) => {
                       navigate(-1);
                     }}
                     onSuccess={() => {
+                      // No debouncedFetchData() here on purpose - the
+                      // optimistic add/edit/delete callbacks above already
+                      // applied the true server-returned row, so there's
+                      // nothing left to reconcile for our own view. The
+                      // realtime channel still refetches for other users
+                      // seeing this change.
                       setEditingTransaction(null);
                       navigate(-1);
-                      debouncedFetchData();
                     }}
                     onOptimisticAdd={optimisticAddTransaction}
                     onOptimisticAddConfirm={confirmOptimisticAdd}
