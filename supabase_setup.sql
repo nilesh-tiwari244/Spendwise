@@ -565,3 +565,113 @@ ALTER TABLE profiles ADD CONSTRAINT profiles_display_name_length_check
 ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_email_length_check;
 ALTER TABLE profiles ADD CONSTRAINT profiles_email_length_check
   CHECK (char_length(email) <= 254) NOT VALID;
+
+-- ============================================================================
+-- PERFORMANCE: incrementally-maintained bucket balances (2026-08-10)
+-- ============================================================================
+-- get_bucket_totals()/get_grand_total() were live SUM()...GROUP BY scans over
+-- the entire transactions table on every call - and they're called on every
+-- single fetchData(), which fires far more often than necessary (see the
+-- separate redundant-refetch discussion). At 4 years / ~438k transactions
+-- projected, every balance lookup would mean summing hundreds of thousands
+-- of rows. This replaces the live scan with a `balance` column on buckets,
+-- kept in sync incrementally by a trigger on transactions, so a lookup
+-- becomes an O(1) column read regardless of how much history exists.
+--
+-- Only one client call site for each RPC (src/App.tsx fetchData), and both
+-- functions keep their exact original name/signature/return shape - no
+-- client code changes required.
+
+-- 1. Add the running-balance column. Fast metadata-only op for a constant
+-- DEFAULT even on an existing table; real values are backfilled next.
+ALTER TABLE buckets ADD COLUMN IF NOT EXISTS balance NUMERIC NOT NULL DEFAULT 0;
+
+-- 2. One-time backfill from the current source of truth. Safe to re-run -
+-- it recomputes from transactions each time, not additive.
+UPDATE buckets b
+SET balance = COALESCE((
+  SELECT SUM(CASE WHEN t.type = 'Credit' THEN t.amount ELSE -t.amount END)
+  FROM transactions t
+  WHERE t.bucket_id = b.id AND t.deleted_at IS NULL
+), 0);
+
+-- 3. The trigger that keeps balance correct going forward. Handles all
+-- three operations, and within UPDATE specifically: amount changes, type
+-- changes (Credit<->Debit), soft-delete (deleted_at set), restore
+-- (deleted_at cleared), and - defensively, even though the current UI never
+-- does this - a transaction's bucket_id being reassigned to a different
+-- bucket. Each branch computes old_signed/new_signed (0 if the row is
+-- soft-deleted at that point in time) and applies only the delta via a
+-- single atomic `balance = balance + delta` UPDATE, which Postgres
+-- serializes safely per-row under concurrent writes - no read-modify-write
+-- race like a naive "read balance in app code, write it back" would have.
+CREATE OR REPLACE FUNCTION public.maintain_bucket_balance()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  old_signed NUMERIC := 0;
+  new_signed NUMERIC := 0;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.deleted_at IS NULL THEN
+      old_signed := CASE WHEN OLD.type = 'Credit' THEN OLD.amount ELSE -OLD.amount END;
+    END IF;
+    UPDATE buckets SET balance = balance - old_signed WHERE id = OLD.bucket_id;
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.deleted_at IS NULL THEN
+      new_signed := CASE WHEN NEW.type = 'Credit' THEN NEW.amount ELSE -NEW.amount END;
+    END IF;
+    UPDATE buckets SET balance = balance + new_signed WHERE id = NEW.bucket_id;
+    RETURN NEW;
+  END IF;
+
+  -- TG_OP = 'UPDATE'
+  IF OLD.deleted_at IS NULL THEN
+    old_signed := CASE WHEN OLD.type = 'Credit' THEN OLD.amount ELSE -OLD.amount END;
+  END IF;
+  IF NEW.deleted_at IS NULL THEN
+    new_signed := CASE WHEN NEW.type = 'Credit' THEN NEW.amount ELSE -NEW.amount END;
+  END IF;
+
+  IF OLD.bucket_id = NEW.bucket_id THEN
+    UPDATE buckets SET balance = balance + (new_signed - old_signed) WHERE id = NEW.bucket_id;
+  ELSE
+    UPDATE buckets SET balance = balance - old_signed WHERE id = OLD.bucket_id;
+    UPDATE buckets SET balance = balance + new_signed WHERE id = NEW.bucket_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_maintain_bucket_balance ON transactions;
+CREATE TRIGGER trg_maintain_bucket_balance
+AFTER INSERT OR UPDATE OR DELETE ON transactions
+FOR EACH ROW EXECUTE FUNCTION public.maintain_bucket_balance();
+
+-- 4. Rewrite the two RPCs to read the maintained column instead of scanning.
+-- Neither is SECURITY DEFINER, so RLS on `buckets` ("Users can view buckets
+-- they own or are shared with") applies exactly as it did before via
+-- `transactions`' matching RLS - same visible bucket set, same total values,
+-- just an O(1) read per bucket instead of an O(n) scan.
+CREATE OR REPLACE FUNCTION public.get_bucket_totals()
+RETURNS TABLE(bucket_id uuid, total numeric)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT id, balance FROM buckets;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_grand_total()
+RETURNS numeric
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT COALESCE(SUM(balance), 0) FROM buckets WHERE archived_at IS NULL;
+$$;
