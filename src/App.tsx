@@ -113,6 +113,16 @@ export default function App() {
   // Derive the active bucket from the URL for global UI elements (like the header)
   const match = location.pathname.match(/\/bucket\/([^/]+)/);
   const urlBucketId = match ? match[1] : null;
+  // fetchData reads this via ref rather than depending on urlBucketId
+  // directly, so its identity stays stable across navigation - otherwise
+  // every bucket-to-bucket navigation gave fetchData (and everything
+  // downstream: debouncedFetchData, the realtime channel-setup effect)
+  // a new identity, tearing down and resubscribing all realtime channels
+  // on every navigation instead of once per session.
+  const urlBucketIdRef = useRef<string | null>(urlBucketId);
+  useEffect(() => {
+    urlBucketIdRef.current = urlBucketId;
+  }, [urlBucketId]);
 
   const loadedTxCount = useRef(50);
   useEffect(() => {
@@ -280,7 +290,7 @@ export default function App() {
 
   const fetchData = useCallback(async (isInitial = false) => {
     if (!session) return;
-    
+
     if (isInitial && buckets.length === 0) setIsAppLoading(true);
     if (isInitial) setIsDataLoading(true);
 
@@ -336,8 +346,8 @@ export default function App() {
           .order('date', { ascending: false })
           .order('created_at', { ascending: false });
 
-        if (urlBucketId) {
-          query = query.eq('bucket_id', urlBucketId).limit(loadedTxCount.current + 10);
+        if (urlBucketIdRef.current) {
+          query = query.eq('bucket_id', urlBucketIdRef.current).limit(loadedTxCount.current + 10);
         } else {
           query = query.in('bucket_id', activeBucketIds).limit(loadedTxCount.current + 50);
         }
@@ -383,7 +393,7 @@ export default function App() {
       setIsAppLoading(false);
       setIsDataLoading(false);
     }
-  }, [session, urlBucketId]);
+  }, [session]);
 
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 

@@ -83,6 +83,8 @@ export function DashboardView({
     setHasMore(true);
     setIsFetchingMore(false);
     knownWindowIdsRef.current = new Set();
+    loadMore(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bucket.id]);
 
   useEffect(() => {
@@ -108,10 +110,16 @@ export function DashboardView({
     knownWindowIdsRef.current = incomingIds;
   }, [transactions]);
 
-  const loadMore = async () => {
-    if (isFetchingMore || !hasMore) return;
+  // offsetOverride forces a fetch from a specific position, bypassing the
+  // in-flight/exhausted guards below - used to load a bucket's first page
+  // right on switching into it. App.tsx's global `transactions` prop is no
+  // longer guaranteed to already contain this bucket's data (it only
+  // refetches on explicit triggers, not on navigation), so without this the
+  // view could sit empty until something else happened to trigger a refetch.
+  const loadMore = async (offsetOverride?: number) => {
+    if (offsetOverride === undefined && (isFetchingMore || !hasMore)) return;
     setIsFetchingMore(true);
-    
+
     try {
       let query = supabase
         .from('transactions')
@@ -120,11 +128,12 @@ export function DashboardView({
         .is('deleted_at', null);
 
       const currentBucketId = bucket.id;
+      const offset = offsetOverride ?? localTransactions.length;
 
       const { data, error } = await query
         .order('date', { ascending: false })
         .order('created_at', { ascending: false })
-        .range(localTransactions.length, localTransactions.length + 99);
+        .range(offset, offset + 99);
 
       if (error) throw error;
       if (currentBucketId !== bucket.id) return;
@@ -234,7 +243,7 @@ export function DashboardView({
         </h3>
 
         {localTransactions.length === 0 ? (
-          isLoading ? (
+          isLoading || isFetchingMore ? (
             <TransactionSkeleton />
           ) : (
             <div className="text-center py-12 rounded-2xl bg-zinc-100">
