@@ -3,14 +3,13 @@ import { format } from 'date-fns';
 import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
 import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay } from '../lib/utils';
 import { fetchAllRows } from '../lib/fetchAll';
-import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Scale } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RunningBalanceChart } from './RunningBalanceChart';
 import { AnalyzePrintStatement } from './AnalyzePrintStatement';
 
 export type AnalyzeSnapshot = {
   keyword: string;
-  categoryId: string;
+  categoryIds: string[];
   categorySearch: string;
   startDate: string;
   endDate: string;
@@ -60,10 +59,13 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   // remounting after a round-trip (e.g. viewing a transaction and going
   // back), otherwise from initialParams for a fresh drill-down.
   const [keyword, setKeyword] = useState(persistedState?.keyword ?? '');
-  const [categoryId, setCategoryId] = useState(persistedState?.categoryId ?? initialParams?.categoryId ?? '');
-  const [categorySearch, setCategorySearch] = useState(
-    persistedState?.categorySearch ?? categories.find(c => c.id === initialParams?.categoryId)?.name ?? ''
+  const [categoryIds, setCategoryIds] = useState<string[]>(
+    persistedState?.categoryIds ?? (initialParams?.categoryId ? [initialParams.categoryId] : [])
   );
+  const [categorySearch, setCategorySearch] = useState(persistedState?.categorySearch ?? '');
+  const toggleCategoryId = (id: string) => {
+    setCategoryIds(prev => prev.includes(id) ? prev.filter(cid => cid !== id) : [...prev, id]);
+  };
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const [startDate, setStartDate] = useState(persistedState?.startDate ?? initialParams?.startDate ?? '');
@@ -87,16 +89,20 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   // scope), so a date-ranged print statement doesn't silently drop prior
   // history - only meaningful when a start date is actually applied.
   const [openingBalance, setOpeningBalance] = useState(persistedState?.openingBalance ?? 0);
+  // Which read-only breakdown (if any) is showing above the results list -
+  // mutually exclusive, not persisted across unmount/remount since it's
+  // just a view toggle, not part of the search itself.
+  const [activeSummaryView, setActiveSummaryView] = useState<'bucket' | 'category' | null>(null);
 
   // Keep the parent's snapshot in sync so this state survives an
   // unmount/remount round-trip (e.g. navigating to view a transaction).
   useEffect(() => {
     onPersistedStateChange({
-      keyword, categoryId, categorySearch, startDate, endDate,
+      keyword, categoryIds, categorySearch, startDate, endDate,
       minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyword, categoryId, categorySearch, startDate, endDate, minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance]);
+  }, [keyword, categoryIds, categorySearch, startDate, endDate, minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance]);
 
   const uniqueCategories = useMemo(() => {
     if (selectedBucket) return categories.filter(c => c.bucket_id === selectedBucket.id);
@@ -133,15 +139,16 @@ const runAnalysis = async () => {
     const resolvedBucketIds = selectedBucketIds.length > 0 ? selectedBucketIds : buckets.map(b => b.id);
 
     // The dropdown dedupes categories by name, but each bucket has its own
-    // category row. Expand the picked id to every id with the same name so
-    // the filter matches what the label promises. Safe for the Summary
-    // drill-down because that path pre-selects a single bucket.
-    const matchingCategoryIds = categoryId
+    // category row. Expand each picked id to every id sharing that name so
+    // the filter matches what the label promises, then match ANY of them.
+    const matchingCategoryIds = categoryIds.length > 0
       ? (() => {
-          const selectedName = categories.find(c => c.id === categoryId)?.name;
-          return selectedName
-            ? categories.filter(c => c.name.toLowerCase() === selectedName.toLowerCase()).map(c => c.id)
-            : [categoryId];
+          const selectedNames = new Set(
+            categoryIds.map(id => categories.find(c => c.id === id)?.name?.toLowerCase()).filter((n): n is string => !!n)
+          );
+          return selectedNames.size > 0
+            ? categories.filter(c => selectedNames.has(c.name.toLowerCase())).map(c => c.id)
+            : categoryIds;
         })()
       : null;
 
@@ -215,35 +222,41 @@ const runAnalysis = async () => {
     return { credit, debit, net: credit - debit };
   }, [analyzedTransactions]);
 
-  // Only unambiguous when the results are scoped to exactly one bucket and
-  // one specific category (e.g. one "person" in a loan-tracking bucket) -
-  // otherwise a running total would mix unrelated categories/buckets together.
-  const isSingleCategoryTracking = selectedBucketIds.length === 1 && !!categoryId;
-
-  const runningBalance = useMemo(() => {
-    if (!isSingleCategoryTracking || analyzedTransactions.length === 0) return null;
-
-    const chronological = [...analyzedTransactions].sort((a, b) => {
-      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  // Bucket/category breakdowns of the current search results only - not a
+  // fresh query, just grouping what's already loaded in analyzedTransactions.
+  const bucketSummaryTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    analyzedTransactions.forEach(t => {
+      const signed = t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
+      totals[t.bucket_id] = (totals[t.bucket_id] || 0) + signed;
     });
+    return Object.entries(totals)
+      .map(([bucketId, total]) => ({ id: bucketId, name: buckets.find(b => b.id === bucketId)?.name || 'Unknown Bucket', total }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [analyzedTransactions, buckets]);
 
-    const byTransactionId = new Map<string, number>();
-    const points: { date: string; balance: number }[] = [];
-    let balance = 0;
-    chronological.forEach(t => {
-      balance += t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
-      byTransactionId.set(t.id, balance);
-      points.push({ date: t.date, balance });
+  const categorySummaryTotals = useMemo(() => {
+    // Grouped by lowercased name rather than category_id - the same
+    // category name (e.g. "Cash") can exist as separate rows in different
+    // buckets, and here they should combine into one line instead of
+    // showing up as duplicate categories.
+    const totals: Record<string, { name: string; total: number }> = {};
+    analyzedTransactions.forEach(t => {
+      const signed = t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
+      const rawName = t.category_id ? (categories.find(c => c.id === t.category_id)?.name || 'Unknown Category') : 'Uncategorized';
+      const key = rawName.toLowerCase();
+      if (!totals[key]) totals[key] = { name: rawName, total: 0 };
+      totals[key].total += signed;
     });
+    return Object.entries(totals)
+      .map(([key, { name, total }]) => ({ id: key, name, total }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [analyzedTransactions, categories]);
 
-    return { byTransactionId, points, final: balance };
-  }, [isSingleCategoryTracking, analyzedTransactions]);
 
   const clearFilters = () => {
     setKeyword('');
-    setCategoryId('');
+    setCategoryIds([]);
     setCategorySearch('');
     setStartDate('');
     setEndDate('');
@@ -275,22 +288,14 @@ const runAnalysis = async () => {
   }, [analyzedTransactions, buckets, user.id, isAnalyzed]);
 
   const printTitle = useMemo(() => {
-    if (isSingleCategoryTracking) {
-      const bucketName = buckets.find(b => b.id === selectedBucketIds[0])?.name || 'Bucket';
-      const categoryName = categories.find(c => c.id === categoryId)?.name || 'Category';
-      return `${bucketName} — ${categoryName}`;
-    }
     if (selectedBucketIds.length === 1) {
       return buckets.find(b => b.id === selectedBucketIds[0])?.name || 'Search Results';
     }
     if (selectedBucketIds.length > 1) return 'Multiple Buckets';
     return 'All Buckets';
-  }, [isSingleCategoryTracking, selectedBucketIds, buckets, categoryId, categories]);
+  }, [selectedBucketIds, buckets]);
 
-  const printSubject = useMemo(() => {
-    if (isSingleCategoryTracking) return categories.find(c => c.id === categoryId)?.name || 'This account';
-    return 'This account';
-  }, [isSingleCategoryTracking, categoryId, categories]);
+  const printSubject = 'This account';
 
   const printDateRangeLabel = useMemo(() => {
     if (startDate && endDate) return `(${format(new Date(startDate), 'dd MMM yyyy')} - ${format(new Date(endDate), 'dd MMM yyyy')})`;
@@ -353,6 +358,30 @@ const runAnalysis = async () => {
 
         <div className="relative" ref={categoryDropdownRef}>
           <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">Category</label>
+
+          {categoryIds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {categoryIds.map(id => {
+                const cat = categories.find(c => c.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1 bg-zinc-100 rounded-full pl-2.5 pr-1.5 py-1 text-xs font-bold uppercase tracking-tight"
+                  >
+                    {cat?.name || 'Unknown'}
+                    <button
+                      type="button"
+                      onClick={() => toggleCategoryId(id)}
+                      className="p-0.5 hover:bg-zinc-200 rounded-full transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
           <div className="relative group">
             <input
               type="text"
@@ -360,10 +389,9 @@ const runAnalysis = async () => {
               onChange={(e) => {
                 setCategorySearch(e.target.value);
                 setIsCategoryDropdownOpen(true);
-                if (!e.target.value) setCategoryId('');
               }}
               onFocus={() => setIsCategoryDropdownOpen(true)}
-              placeholder="All Categories"
+              placeholder={categoryIds.length > 0 ? 'Add more categories...' : 'All Categories'}
               className="brutal-input py-2 text-xs pr-8 bg-white"
             />
             <button
@@ -383,43 +411,41 @@ const runAnalysis = async () => {
                 exit={{ opacity: 0, y: -10 }}
                 className="absolute z-50 left-0 right-0 mt-2 bg-white rounded-2xl shadow-lg max-h-60 overflow-y-auto overflow-hidden"
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCategoryId('');
-                    setCategorySearch('');
-                    setIsCategoryDropdownOpen(false);
-                  }}
-                  className={cn(
-                    "w-full text-left px-4 py-3 text-sm font-bold hover:bg-zinc-50 transition-colors uppercase tracking-tight",
-                    !categoryId && "bg-zinc-100"
-                  )}
-                >
-                  All Categories
-                </button>
+                {categoryIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryIds([]);
+                      setCategorySearch('');
+                    }}
+                    className="w-full text-left px-4 py-3 text-sm font-bold hover:bg-zinc-50 transition-colors uppercase tracking-tight text-rose-600"
+                  >
+                    Clear All
+                  </button>
+                )}
                 {filteredCategories.length === 0 ? (
                   <div className="p-4 text-center text-xs font-bold text-zinc-400 uppercase">
                     No matching categories
                   </div>
                 ) : (
                   <div className="divide-y-2 divide-zinc-100">
-                    {filteredCategories.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setCategoryId(c.id);
-                          setCategorySearch(c.name);
-                          setIsCategoryDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "w-full text-left px-4 py-3 text-sm font-bold hover:bg-zinc-50 transition-colors uppercase tracking-tight",
-                          categoryId === c.id && "bg-zinc-100"
-                        )}
-                      >
-                        {c.name}
-                      </button>
-                    ))}
+                    {filteredCategories.map((c) => {
+                      const isSelected = categoryIds.includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggleCategoryId(c.id)}
+                          className={cn(
+                            "w-full text-left px-4 py-3 text-sm font-bold hover:bg-zinc-50 transition-colors uppercase tracking-tight flex items-center justify-between gap-2",
+                            isSelected && "bg-zinc-100"
+                          )}
+                        >
+                          <span>{c.name}</span>
+                          {isSelected && <Check className="w-4 h-4 flex-shrink-0" />}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </motion.div>
@@ -552,23 +578,58 @@ const runAnalysis = async () => {
             </div>
           </div>
 
-          {runningBalance && runningBalance.points.length >= 2 && (
-            <div className="space-y-3">
-              <div className="flex justify-between items-center pb-1">
-                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2">
-                  <Scale className="w-4 h-4" />
-                  Running Balance
-                </h3>
-                <span className={cn(
-                  "text-sm font-black",
-                  runningBalance.final > 0 ? "text-emerald-600" : runningBalance.final < 0 ? "text-rose-600" : "text-zinc-900"
-                )}>
-                  {formatCurrency(runningBalance.final)}
-                </span>
-              </div>
-              <RunningBalanceChart points={runningBalance.points} />
+          <div className="space-y-3 print:hidden">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setActiveSummaryView(v => v === 'bucket' ? null : 'bucket')}
+                className={cn(
+                  "brutal-button py-3 text-sm font-black uppercase transition-colors",
+                  activeSummaryView === 'bucket' ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
+                )}
+              >
+                Bucket Summary
+              </button>
+              <button
+                onClick={() => setActiveSummaryView(v => v === 'category' ? null : 'category')}
+                className={cn(
+                  "brutal-button py-3 text-sm font-black uppercase transition-colors",
+                  activeSummaryView === 'category' ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
+                )}
+              >
+                Category Summary
+              </button>
             </div>
-          )}
+
+            {activeSummaryView && (
+              <div className="brutal-card bg-white overflow-hidden">
+                <div className="grid grid-cols-2 bg-zinc-100 pl-1 pr-4 py-2">
+                  <div className="text-xs font-black uppercase tracking-widest pl-2">
+                    {activeSummaryView === 'bucket' ? 'Bucket' : 'Category'}
+                  </div>
+                  <div className="text-xs font-black uppercase tracking-widest text-right">Total</div>
+                </div>
+                <div className="divide-y divide-zinc-100">
+                  {(activeSummaryView === 'bucket' ? bucketSummaryTotals : categorySummaryTotals).length === 0 ? (
+                    <div className="p-6 text-center text-sm font-bold text-zinc-500 uppercase">
+                      No results
+                    </div>
+                  ) : (
+                    (activeSummaryView === 'bucket' ? bucketSummaryTotals : categorySummaryTotals).map(row => (
+                      <div key={row.id} className="grid grid-cols-2 pl-1 pr-4 py-1 items-center">
+                        <div className="font-bold text-sm pl-2">{row.name}</div>
+                        <div className={cn(
+                          "text-right font-black",
+                          row.total < 0 ? "text-rose-600" : row.total > 0 ? "text-emerald-600" : "text-zinc-900"
+                        )}>
+                          {row.total < 0 ? '-' : row.total > 0 ? '+' : ''}₹{Math.abs(row.total).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="space-y-4">
             <div className="flex justify-between items-center pb-1">
@@ -657,15 +718,6 @@ const runAnalysis = async () => {
                               </div>
                             )}
 
-                            {runningBalance?.byTransactionId.has(t.id) && (
-                              <div className={cn(
-                                "text-[10px] font-black uppercase break-all",
-                                (runningBalance.byTransactionId.get(t.id) || 0) > 0 ? "text-emerald-600" :
-                                (runningBalance.byTransactionId.get(t.id) || 0) < 0 ? "text-rose-600" : "text-zinc-500"
-                              )}>
-                                BALANCE:- {formatCurrency(runningBalance.byTransactionId.get(t.id) || 0)}
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -708,7 +760,7 @@ const runAnalysis = async () => {
           transactions={analyzedTransactions}
           openingBalance={openingBalance}
           hasOpeningBalance={!!startDate}
-          showRunningBalance={isSingleCategoryTracking}
+          showRunningBalance={false}
         />
         </>
       )}
