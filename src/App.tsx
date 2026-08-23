@@ -1049,7 +1049,13 @@ const splitTimestamp = (ts: string | null | undefined) => {
       </main>
 
       {/* Mobile Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30">
+      {/* will-change/backface-visibility force this onto its own compositor
+          layer - without it, iOS Safari can visibly lag this fixed bar
+          behind during momentum scroll instead of keeping it pinned. */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-30"
+        style={{ willChange: 'transform', WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
+      >
         <button 
           type="button"
           onClick={() => {
