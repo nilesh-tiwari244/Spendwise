@@ -8,6 +8,10 @@ interface AnalyzePrintStatementProps {
   // Short name used in the "X will give" phrase - kept separate from title
   // so a compound "Bucket — Person" heading doesn't repeat awkwardly there.
   subject: string;
+  // Only set when exactly one category is selected in the search - shown as
+  // its own header line, left out entirely otherwise rather than folded into
+  // `subject` (which would read awkwardly blank for the 0/many-selected case).
+  categoryLabel: string;
   dateRangeLabel: string;
   transactions: Transaction[];
   openingBalance: number;
@@ -37,7 +41,7 @@ function drCrLabel(balance: number, subject: string): { suffix: string; phrase: 
 }
 
 export function AnalyzePrintStatement({
-  title, subject, dateRangeLabel, transactions, openingBalance, hasOpeningBalance, showRunningBalance
+  title, subject, categoryLabel, dateRangeLabel, transactions, openingBalance, hasOpeningBalance, showRunningBalance
 }: AnalyzePrintStatementProps) {
   const { monthGroups, totalDebit, totalCredit, finalBalance } = useMemo(() => {
     const chronological = [...transactions].sort((a, b) => {
@@ -78,9 +82,10 @@ export function AnalyzePrintStatement({
   const netLabel = drCrLabel(netForSummary, subject);
 
   return (
-    <div className="hidden print:block text-black">
+    <div className="hidden print:block text-black p-6">
       <div className="text-center mb-6">
         <h1 className="text-xl font-bold">{title} Statement</h1>
+        {categoryLabel && <p className="text-sm font-semibold text-gray-800 mt-1">{categoryLabel}</p>}
         <p className="text-sm text-gray-600 mt-1">{dateRangeLabel}</p>
       </div>
 

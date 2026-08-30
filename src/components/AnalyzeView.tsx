@@ -287,15 +287,44 @@ const runAnalysis = async () => {
     });
   }, [analyzedTransactions, buckets, user.id, isAnalyzed]);
 
-  const printTitle = useMemo(() => {
-    if (selectedBucketIds.length === 1) {
-      return buckets.find(b => b.id === selectedBucketIds[0])?.name || 'Search Results';
-    }
-    if (selectedBucketIds.length > 1) return 'Multiple Buckets';
-    return 'All Buckets';
-  }, [selectedBucketIds, buckets]);
+  // Deliberately not bucket-specific - the printed statement shouldn't name
+  // whichever bucket(s) the search happened to be scoped to.
+  const printTitle = 'Account';
 
   const printSubject = 'This account';
+
+  // A running balance across transactions only means something when they're
+  // all from the same bucket - mixing buckets would add up unrelated
+  // balances. Used for both the on-screen list and the print statement, so
+  // the two always show identical figures.
+  const showRunningBalance = selectedBucketIds.length === 1;
+
+  const runningBalanceByTransactionId = useMemo(() => {
+    if (!showRunningBalance || analyzedTransactions.length === 0) return null;
+
+    const chronological = [...analyzedTransactions].sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
+    const map = new Map<string, number>();
+    // Starts from openingBalance so the on-screen figures always match what
+    // the print statement shows for the same filtered results.
+    let balance = openingBalance;
+    chronological.forEach(t => {
+      balance += t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
+      map.set(t.id, balance);
+    });
+
+    return map;
+  }, [analyzedTransactions, showRunningBalance, openingBalance]);
+
+  // Only shown in the printout, and only when it's unambiguous which single
+  // category the statement is scoped to.
+  const printCategoryLabel = categoryIds.length === 1
+    ? categories.find(c => c.id === categoryIds[0])?.name ?? ''
+    : '';
 
   const printDateRangeLabel = useMemo(() => {
     if (startDate && endDate) return `(${format(new Date(startDate), 'dd MMM yyyy')} - ${format(new Date(endDate), 'dd MMM yyyy')})`;
@@ -718,6 +747,16 @@ const runAnalysis = async () => {
                               </div>
                             )}
 
+                            {runningBalanceByTransactionId?.has(t.id) && (
+                              <div className={cn(
+                                "text-[10px] font-black uppercase break-all",
+                                (runningBalanceByTransactionId.get(t.id) || 0) > 0 ? "text-emerald-600" :
+                                (runningBalanceByTransactionId.get(t.id) || 0) < 0 ? "text-rose-600" : "text-zinc-500"
+                              )}>
+                                BALANCE:- {formatCurrency(runningBalanceByTransactionId.get(t.id) || 0)}
+                              </div>
+                            )}
+
                           </div>
                         </div>
                       </div>
@@ -756,11 +795,12 @@ const runAnalysis = async () => {
         <AnalyzePrintStatement
           title={printTitle}
           subject={printSubject}
+          categoryLabel={printCategoryLabel}
           dateRangeLabel={printDateRangeLabel}
           transactions={analyzedTransactions}
           openingBalance={openingBalance}
           hasOpeningBalance={!!startDate}
-          showRunningBalance={false}
+          showRunningBalance={showRunningBalance}
         />
         </>
       )}
