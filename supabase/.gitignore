@@ -1,0 +1,4 @@
+# Supabase CLI local cache - holds the linked project ref and a pooler
+# connection string containing a real database password. Never commit it.
+.branches
+.temp
