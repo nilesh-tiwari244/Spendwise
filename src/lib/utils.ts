@@ -6,6 +6,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Transactions can be saved without a category (category_id is null). These
+// let "no category" be summarised and filtered as if it were one more
+// category, instead of quietly disappearing from Summary and Search. Real
+// category ids are UUIDs, so the sentinel can never collide with one.
+export const UNCATEGORIZED_ID = '__uncategorized__';
+export const UNCATEGORIZED_LABEL = '(Blank)';
+
 export function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',

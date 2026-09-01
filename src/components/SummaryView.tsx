@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase, type Category, type Bucket } from '../lib/supabase';
 import { ArrowLeft, Filter, ClipboardList, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { fetchAllRows } from '../lib/fetchAll';
+import { UNCATEGORIZED_ID, UNCATEGORIZED_LABEL } from '../lib/utils';
 
 interface SummaryViewProps {
   bucket: Bucket;
@@ -18,22 +20,47 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
   const [appliedEndDate, setAppliedEndDate] = useState<string | null>(null);
   
   const [categoryTotals, setCategoryTotals] = useState<Record<string, number>>({});
+  const [uncategorizedTotal, setUncategorizedTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Transactions with no category are summed here rather than via the summary
+  // RPC, which groups by category_id and so has no row to hang them on. Signed
+  // the same way (Credit adds, Debit subtracts) so the figure is comparable to
+  // the per-category totals it sits alongside.
+  const fetchUncategorizedTotal = async (start: string | null, end: string | null) => {
+    const buildQuery = () => {
+      let q = supabase
+        .from('transactions')
+        .select('id, type, amount')
+        .eq('bucket_id', bucket.id)
+        .is('category_id', null)
+        .is('deleted_at', null);
+      if (start) q = q.gte('date', start);
+      if (end) q = q.lte('date', end + 'T23:59:59');
+      return q;
+    };
+
+    const rows = await fetchAllRows<{ id: string; type: 'Credit' | 'Debit'; amount: number }>(buildQuery);
+    return rows.reduce((sum, t) => sum + (t.type === 'Credit' ? Number(t.amount) : -Number(t.amount)), 0);
+  };
 
   // Fetch the summary directly from the database!
   const fetchSummary = async (start: string | null, end: string | null) => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.rpc('get_bucket_category_summary', {
-        p_bucket_id: bucket.id,
-        p_start_date: start || null,
-        p_end_date: end || null
-      });
+      const [{ data, error }, blankTotal] = await Promise.all([
+        supabase.rpc('get_bucket_category_summary', {
+          p_bucket_id: bucket.id,
+          p_start_date: start || null,
+          p_end_date: end || null
+        }),
+        fetchUncategorizedTotal(start, end)
+      ]);
 
       if (error) throw error;
 
       const totalsMap: Record<string, number> = {};
-      
+
       // Initialize all categories to 0 so they still show up on the list
       categories.forEach(cat => {
         totalsMap[cat.id] = 0;
@@ -42,11 +69,16 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
       // Populate with actual data from the server
       if (data) {
         data.forEach((row: any) => {
+          // Skip any null-category row the RPC might return - those are
+          // counted by fetchUncategorizedTotal instead, so taking both
+          // would double up.
+          if (!row.category_id) return;
           totalsMap[row.category_id] = Number(row.total);
         });
       }
 
       setCategoryTotals(totalsMap);
+      setUncategorizedTotal(blankTotal);
     } catch (err) {
       console.error('Error fetching summary:', err);
     } finally {
@@ -175,35 +207,51 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
           </div>
         ) : (
           <div className="divide-y divide-zinc-100">
-            {sortedCategoryTotals.length === 0 ? (
+            {sortedCategoryTotals.length === 0 && (
               <div className="p-6 text-center text-sm font-bold text-zinc-500 uppercase">
                 No categories found
               </div>
-            ) : (
-              sortedCategoryTotals.map(([categoryId, total]) => {
-                const category = categories.find(c => c.id === categoryId);
-                if (!category) return null;
-                
-                return (
-                  <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    key={categoryId} 
-                    onClick={() => onCategoryClick?.(categoryId, appliedStartDate || undefined, appliedEndDate || undefined)}
-                    // Restored py-1 for compact rows
-                    className="grid grid-cols-2 pl-1 pr-4 py-1 items-center hover:bg-zinc-50 transition-colors cursor-pointer"
-                  >
-                    <div className="font-bold text-sm flex items-center gap-2 pl-2">
-                      {category.name}
-                    </div>
-                    {/* Restored emerald/rose colors and format logic */}
-                    <div className={`text-right font-black ${total < 0 ? 'text-rose-600' : total > 0 ? 'text-emerald-600' : 'text-zinc-900'}`}>
-                      {total < 0 ? '-' : total > 0 ? '+' : ''}₹{Math.abs(total).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  </motion.div>
-                );
-              })
             )}
+            {sortedCategoryTotals.map(([categoryId, total]) => {
+              const category = categories.find(c => c.id === categoryId);
+              if (!category) return null;
+
+              return (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  key={categoryId}
+                  onClick={() => onCategoryClick?.(categoryId, appliedStartDate || undefined, appliedEndDate || undefined)}
+                  // Restored py-1 for compact rows
+                  className="grid grid-cols-2 pl-1 pr-4 py-1 items-center hover:bg-zinc-50 transition-colors cursor-pointer"
+                >
+                  <div className="font-bold text-sm flex items-center gap-2 pl-2">
+                    {category.name}
+                  </div>
+                  {/* Restored emerald/rose colors and format logic */}
+                  <div className={`text-right font-black ${total < 0 ? 'text-rose-600' : total > 0 ? 'text-emerald-600' : 'text-zinc-900'}`}>
+                    {total < 0 ? '-' : total > 0 ? '+' : ''}₹{Math.abs(total).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </motion.div>
+              );
+            })}
+
+            {/* Always last, and always present even at zero, so transactions
+                left without a category stay visible and filterable the same
+                way every real category above does. */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              onClick={() => onCategoryClick?.(UNCATEGORIZED_ID, appliedStartDate || undefined, appliedEndDate || undefined)}
+              className="grid grid-cols-2 pl-1 pr-4 py-1 items-center hover:bg-zinc-50 transition-colors cursor-pointer"
+            >
+              <div className="font-bold text-sm italic text-zinc-500 flex items-center gap-2 pl-2">
+                {UNCATEGORIZED_LABEL}
+              </div>
+              <div className={`text-right font-black ${uncategorizedTotal < 0 ? 'text-rose-600' : uncategorizedTotal > 0 ? 'text-emerald-600' : 'text-zinc-900'}`}>
+                {uncategorizedTotal < 0 ? '-' : uncategorizedTotal > 0 ? '+' : ''}₹{Math.abs(uncategorizedTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </motion.div>
           </div>
         )}
       </div>

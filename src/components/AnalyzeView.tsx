@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
-import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay } from '../lib/utils';
+import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay, UNCATEGORIZED_ID, UNCATEGORIZED_LABEL } from '../lib/utils';
 import { fetchAllRows } from '../lib/fetchAll';
 import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -115,12 +115,23 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
     });
   }, [categories, selectedBucket]);
 
+  // Plain {id, name} rather than Category rows, because "(Blank)" isn't a real
+  // category - it stands for transactions whose category_id is null. Kept last
+  // so it reads as an extra option rather than one of the bucket's categories.
+  const categoryOptions = useMemo(() => [
+    ...uniqueCategories.map(c => ({ id: c.id, name: c.name })),
+    { id: UNCATEGORIZED_ID, name: UNCATEGORIZED_LABEL }
+  ], [uniqueCategories]);
+
   const filteredCategories = useMemo(() => {
-    if (!categorySearch.trim()) return uniqueCategories;
-    return uniqueCategories.filter(c => 
+    if (!categorySearch.trim()) return categoryOptions;
+    return categoryOptions.filter(c =>
       c.name.toLowerCase().includes(categorySearch.toLowerCase())
     );
-  }, [uniqueCategories, categorySearch]);
+  }, [categoryOptions, categorySearch]);
+
+  const categoryLabelFor = (id: string) =>
+    id === UNCATEGORIZED_ID ? UNCATEGORIZED_LABEL : categories.find(c => c.id === id)?.name;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -138,19 +149,35 @@ const runAnalysis = async () => {
 
     const resolvedBucketIds = selectedBucketIds.length > 0 ? selectedBucketIds : buckets.map(b => b.id);
 
+    // "(Blank)" isn't an id to match - it means category_id IS NULL - so it's
+    // split out here and recombined in applyCategoryFilter below.
+    const includeUncategorized = categoryIds.includes(UNCATEGORIZED_ID);
+    const realCategoryIds = categoryIds.filter(id => id !== UNCATEGORIZED_ID);
+
     // The dropdown dedupes categories by name, but each bucket has its own
     // category row. Expand each picked id to every id sharing that name so
     // the filter matches what the label promises, then match ANY of them.
-    const matchingCategoryIds = categoryIds.length > 0
+    const matchingCategoryIds = realCategoryIds.length > 0
       ? (() => {
           const selectedNames = new Set(
-            categoryIds.map(id => categories.find(c => c.id === id)?.name?.toLowerCase()).filter((n): n is string => !!n)
+            realCategoryIds.map(id => categories.find(c => c.id === id)?.name?.toLowerCase()).filter((n): n is string => !!n)
           );
           return selectedNames.size > 0
             ? categories.filter(c => selectedNames.has(c.name.toLowerCase())).map(c => c.id)
-            : categoryIds;
+            : realCategoryIds;
         })()
       : null;
+
+    // Selecting "(Blank)" alongside real categories needs an OR, since no
+    // single IN can express "these ids, or no category at all".
+    const applyCategoryFilter = (q: any) => {
+      if (includeUncategorized && matchingCategoryIds) {
+        return q.or(`category_id.is.null,category_id.in.(${matchingCategoryIds.join(',')})`);
+      }
+      if (includeUncategorized) return q.is('category_id', null);
+      if (matchingCategoryIds) return q.in('category_id', matchingCategoryIds);
+      return q;
+    };
 
     const buildQuery = () => {
       let query = supabase
@@ -159,7 +186,7 @@ const runAnalysis = async () => {
         .is('deleted_at', null)
         .in('bucket_id', resolvedBucketIds);
 
-      if (matchingCategoryIds) query = query.in('category_id', matchingCategoryIds);
+      query = applyCategoryFilter(query);
       if (startDate) query = query.gte('date', startDate);
       if (endDate) query = query.lte('date', endDate + 'T23:59:59');
       if (minAmount) query = query.gte('amount', minAmount);
@@ -189,8 +216,7 @@ const runAnalysis = async () => {
             .is('deleted_at', null)
             .in('bucket_id', resolvedBucketIds)
             .lt('date', startDate);
-          if (matchingCategoryIds) q = q.in('category_id', matchingCategoryIds);
-          return q;
+          return applyCategoryFilter(q);
         };
         const openingRows = await fetchAllRows<{ id?: string; type: 'Credit' | 'Debit'; amount: number }>(buildOpeningQuery);
         setOpeningBalance(openingRows.reduce((sum, t) => sum + (t.type === 'Credit' ? Number(t.amount) : -Number(t.amount)), 0));
@@ -243,7 +269,7 @@ const runAnalysis = async () => {
     const totals: Record<string, { name: string; total: number }> = {};
     analyzedTransactions.forEach(t => {
       const signed = t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
-      const rawName = t.category_id ? (categories.find(c => c.id === t.category_id)?.name || 'Unknown Category') : 'Uncategorized';
+      const rawName = t.category_id ? (categories.find(c => c.id === t.category_id)?.name || 'Unknown Category') : UNCATEGORIZED_LABEL;
       const key = rawName.toLowerCase();
       if (!totals[key]) totals[key] = { name: rawName, total: 0 };
       totals[key].total += signed;
@@ -323,7 +349,7 @@ const runAnalysis = async () => {
   // Only shown in the printout, and only when it's unambiguous which single
   // category the statement is scoped to.
   const printCategoryLabel = categoryIds.length === 1
-    ? categories.find(c => c.id === categoryIds[0])?.name ?? ''
+    ? categoryLabelFor(categoryIds[0]) ?? ''
     : '';
 
   const printDateRangeLabel = useMemo(() => {
@@ -391,13 +417,12 @@ const runAnalysis = async () => {
           {categoryIds.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {categoryIds.map(id => {
-                const cat = categories.find(c => c.id === id);
                 return (
                   <span
                     key={id}
                     className="inline-flex items-center gap-1 bg-zinc-100 rounded-full pl-2.5 pr-1.5 py-1 text-xs font-bold uppercase tracking-tight"
                   >
-                    {cat?.name || 'Unknown'}
+                    {categoryLabelFor(id) || 'Unknown'}
                     <button
                       type="button"
                       onClick={() => toggleCategoryId(id)}
