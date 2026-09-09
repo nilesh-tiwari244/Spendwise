@@ -297,13 +297,23 @@ export default function App() {
     try {
       const userEmail = session.user.email;
 
-      const [bucketsRes, sharedWithRes, sharedByRes, catRes, orphanedRes, profilesRes] = await Promise.all([
+      // Both totals RPCs take no arguments and derive their scope from the
+      // auth context server-side, so they don't depend on anything fetched
+      // here - they ride along in this same batch rather than costing a
+      // second round trip. The database is a long way from most users, so
+      // each extra sequential hop is a visible chunk of startup time.
+      const [
+        bucketsRes, sharedWithRes, sharedByRes, catRes, orphanedRes, profilesRes,
+        bucketTotalsRes, grandTotalRes
+      ] = await Promise.all([
         supabase.from('buckets').select('*').order('name', { ascending: true }),
         supabase.from('bucket_shares').select('*, bucket:buckets(*)').eq('shared_with_email', userEmail),
         supabase.from('bucket_shares').select('*').eq('shared_by_email', userEmail),
         supabase.from('categories').select('*').order('name', { ascending: true }),
         supabase.from('transactions').select('id', { count: 'exact', head: true }).is('bucket_id', null),
-        supabase.from('profiles').select('id, email, display_name')
+        supabase.from('profiles').select('id, email, display_name'),
+        supabase.rpc('get_bucket_totals'),
+        supabase.rpc('get_grand_total')
       ]);
 
       if (profilesRes.data) {
@@ -331,11 +341,6 @@ export default function App() {
 
       const activeBuckets = allBuckets.filter(b => !b.archived_at);
       const activeBucketIds = activeBuckets.map(b => b.id);
-
-      const [bucketTotalsRes, grandTotalRes] = await Promise.all([
-        supabase.rpc('get_bucket_totals'),
-        supabase.rpc('get_grand_total')
-      ]);
 
       let transactionsData: Transaction[] = [];
       if (activeBucketIds.length > 0) {
