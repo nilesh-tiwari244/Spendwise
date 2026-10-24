@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase, type Category, type Transaction, type Bucket } from '../lib/supabase';
 import { ArrowLeft, Loader2, Camera, X, ChevronDown, Search } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, todayForDateInput } from '../lib/utils';
 import { ConfirmationModal } from './ConfirmationModal';
 import { logActivity } from '../lib/activity';
 import { compressImage } from '../lib/imageCompression';
@@ -22,7 +22,7 @@ interface AddTransactionViewProps {
 export function AddTransactionView({ categories, selectedBucket, editingTransaction, onBack, onSuccess, onOptimisticAdd, onOptimisticAddConfirm, onOptimisticEdit, onOptimisticDelete }: AddTransactionViewProps) {
   const [type, setType] = useState<'Credit' | 'Debit'>(editingTransaction?.type || 'Debit');
   const [amount, setAmount] = useState(editingTransaction?.amount.toString() || '');
-  const [date, setDate] = useState(editingTransaction ? new Date(editingTransaction.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(editingTransaction ? new Date(editingTransaction.date).toISOString().split('T')[0] : todayForDateInput());
   const [categoryId, setCategoryId] = useState(editingTransaction?.category_id || '');
   const [categorySearch, setCategorySearch] = useState(categories.find(c => c.id === editingTransaction?.category_id)?.name || '');
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
@@ -102,7 +102,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
   const handleClear = () => {
     setType('Debit');
     setAmount('');
-    setDate(new Date().toISOString().split('T')[0]);
+    setDate(todayForDateInput());
     setCategoryId('');
     setCategorySearch('');
     setRemarks('');
@@ -232,7 +232,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
       <ConfirmationModal
         isOpen={showDeleteConfirm}
         title="Delete Transaction?"
-        message="This transaction will be moved to the recycle bin for 30 days."
+        message="This transaction will be moved to the recycle bin, which keeps only the 20 most recently deleted items per bucket."
         onConfirm={() => {
           setShowDeleteConfirm(false);
           handleDelete();

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { type Bucket, type Transaction, supabase } from '../lib/supabase';
+import { type Bucket, supabase } from '../lib/supabase';
 import { formatCurrency, cn } from '../lib/utils';
 import { ArrowLeft, Archive, Trash2, RotateCcw, Wallet, Loader2, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -7,12 +7,16 @@ import { logActivity } from '../lib/activity';
 
 interface ArchiveViewProps {
   buckets: Bucket[];
-  transactions: Transaction[];
+  // Same maintained balances the Home screen shows, so an archived bucket
+  // reports the same figure here as it did before it was archived. The old
+  // code summed App's global transaction list, which only ever holds ACTIVE
+  // buckets' rows - so every archived bucket showed a balance of 0.
+  bucketTotals: Record<string, number>;
   onBack: () => void;
   onRefresh: () => void;
 }
 
-export function ArchiveView({ buckets, transactions, onBack, onRefresh }: ArchiveViewProps) {
+export function ArchiveView({ buckets, bucketTotals, onBack, onRefresh }: ArchiveViewProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState<string | null>(null);
@@ -21,18 +25,6 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
   const archivedBuckets = useMemo(() => {
     return buckets.filter(b => b.archived_at);
   }, [buckets]);
-
-  const bucketBalances = useMemo(() => {
-    const balances: Record<string, number> = {};
-    archivedBuckets.forEach(b => {
-      const bucketTrans = transactions.filter(t => t.bucket_id === b.id && !t.deleted_at);
-      const balance = bucketTrans.reduce((sum, t) => {
-        return t.type === 'Credit' ? sum + t.amount : sum - t.amount;
-      }, 0);
-      balances[b.id] = balance;
-    });
-    return balances;
-  }, [archivedBuckets, transactions]);
 
   const handleRestore = async (id: string) => {
     setLoading(id);
@@ -114,7 +106,7 @@ export function ArchiveView({ buckets, transactions, onBack, onRefresh }: Archiv
                         <Archive className="w-3 h-3 text-zinc-300" />
                       </div>
                       <div className="text-lg font-black tracking-tight text-zinc-400">
-                        {formatCurrency(bucketBalances[b.id])}
+                        {formatCurrency(bucketTotals[b.id] || 0)}
                       </div>
                     </div>
                   </div>

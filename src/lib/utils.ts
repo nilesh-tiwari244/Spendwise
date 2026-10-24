@@ -25,6 +25,14 @@ export function formatDate(date: string | Date) {
   return format(new Date(date), 'dd MMM yyyy');
 }
 
+// Local calendar date as yyyy-MM-dd, for a <input type="date"> default.
+// new Date().toISOString() would format in UTC, so for the first 5.5 hours
+// of each day in IST it returns yesterday - defaulting new transactions to
+// the wrong day. date-fns format() uses the local timezone.
+export function todayForDateInput(): string {
+  return format(new Date(), 'yyyy-MM-dd');
+}
+
 export function getDateParts(date: string | Date) {
   const d = new Date(date);
   return {

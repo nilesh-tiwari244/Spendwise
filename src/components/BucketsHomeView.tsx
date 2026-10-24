@@ -9,7 +9,6 @@ import { logActivity } from '../lib/activity';
 interface BucketsHomeViewProps {
   buckets: Bucket[];
   bucketTotals: Record<string, number>;
-  grandTotal: number;
   orphanedCount: number;
   shares: BucketShare[];
   pendingShares: BucketShare[];
@@ -26,10 +25,9 @@ interface BucketsHomeViewProps {
 }
 
 export function BucketsHomeView({ 
-  buckets, 
-  bucketTotals, 
-  grandTotal, 
-  orphanedCount, 
+  buckets,
+  bucketTotals,
+  orphanedCount,
   shares, 
   pendingShares, 
   userId, 

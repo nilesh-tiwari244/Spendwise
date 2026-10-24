@@ -77,7 +77,6 @@ export default function App() {
   const [isAppLoading, setIsAppLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [bucketTotals, setBucketTotals] = useState<Record<string, number>>({});
-  const [grandTotal, setGrandTotal] = useState<number>(0);
   const [orphanedCount, setOrphanedCount] = useState<number>(0);
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -207,14 +206,12 @@ export default function App() {
     try {
       const cachedBuckets = localStorage.getItem('sw_buckets');
       const cachedTotals = localStorage.getItem('sw_bucketTotals');
-      const cachedGrandTotal = localStorage.getItem('sw_grandTotal');
-      
+
       if (cachedBuckets) {
         setBuckets(JSON.parse(cachedBuckets));
-        setIsAppLoading(false); 
+        setIsAppLoading(false);
       }
       if (cachedTotals) setBucketTotals(JSON.parse(cachedTotals));
-      if (cachedGrandTotal) setGrandTotal(JSON.parse(cachedGrandTotal));
     } catch (e) {
       console.warn('Failed to load cache:', e);
     }
@@ -241,7 +238,6 @@ export default function App() {
       try {
         localStorage.removeItem('sw_buckets');
         localStorage.removeItem('sw_bucketTotals');
-        localStorage.removeItem('sw_grandTotal');
         localStorage.removeItem('sw_cache_uid');
       } catch (e) {
         console.warn('Failed to clear cache', e);
@@ -250,7 +246,6 @@ export default function App() {
       setTransactions([]);
       setCategories([]);
       setBucketTotals({});
-      setGrandTotal(0);
       setOrphanedCount(0);
       setShares([]);
       setPendingShares([]);
@@ -297,14 +292,14 @@ export default function App() {
     try {
       const userEmail = session.user.email;
 
-      // Both totals RPCs take no arguments and derive their scope from the
-      // auth context server-side, so they don't depend on anything fetched
-      // here - they ride along in this same batch rather than costing a
+      // get_bucket_totals takes no arguments and derives its scope from the
+      // auth context server-side, so it doesn't depend on anything fetched
+      // here - it rides along in this same batch rather than costing a
       // second round trip. The database is a long way from most users, so
       // each extra sequential hop is a visible chunk of startup time.
       const [
         bucketsRes, sharedWithRes, sharedByRes, catRes, orphanedRes, profilesRes,
-        bucketTotalsRes, grandTotalRes
+        bucketTotalsRes
       ] = await Promise.all([
         supabase.from('buckets').select('*').order('name', { ascending: true }),
         supabase.from('bucket_shares').select('*, bucket:buckets(*)').eq('shared_with_email', userEmail),
@@ -312,8 +307,7 @@ export default function App() {
         supabase.from('categories').select('*').order('name', { ascending: true }),
         supabase.from('transactions').select('id', { count: 'exact', head: true }).is('bucket_id', null),
         supabase.from('profiles').select('id, email, display_name'),
-        supabase.rpc('get_bucket_totals'),
-        supabase.rpc('get_grand_total')
+        supabase.rpc('get_bucket_totals')
       ]);
 
       if (profilesRes.data) {
@@ -376,8 +370,7 @@ export default function App() {
       if (catRes.data) setCategories(catRes.data);
       setOrphanedCount(orphanedRes.count || 0);
       setBucketTotals(totalsMap);
-      setGrandTotal(Number(grandTotalRes.data || 0));
-      
+
       setTransactions(transactionsData.sort((a, b) => {
         const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
         if (dateDiff !== 0) return dateDiff;
@@ -387,7 +380,6 @@ export default function App() {
       try {
         localStorage.setItem('sw_buckets', JSON.stringify(allBuckets));
         localStorage.setItem('sw_bucketTotals', JSON.stringify(totalsMap));
-        localStorage.setItem('sw_grandTotal', JSON.stringify(Number(grandTotalRes.data || 0)));
         localStorage.setItem('sw_cache_uid', session.user.id);
       } catch (e) {
         console.warn('Failed to save cache', e);
@@ -532,7 +524,6 @@ export default function App() {
       ...prev,
       [optimisticTx.bucket_id]: (prev[optimisticTx.bucket_id] || 0) + amountChange
     }));
-    setGrandTotal(prev => prev + amountChange);
     return tempId;
   }, [session, categories]);
 
@@ -564,7 +555,6 @@ export default function App() {
       ...prevTotals,
       [t.bucket_id]: (prevTotals[t.bucket_id] || 0) + difference
     }));
-    setGrandTotal(g => g + difference);
   }, [categories]);
 
   const optimisticDeleteTransaction = useCallback((id: string) => {
@@ -578,7 +568,6 @@ export default function App() {
       ...prevTotals,
       [t.bucket_id]: (prevTotals[t.bucket_id] || 0) + amountChange
     }));
-    setGrandTotal(g => g + amountChange);
   }, []);
 
   const handleAddBucket = async (e: React.FormEvent) => {
@@ -838,7 +827,6 @@ const splitTimestamp = (ts: string | null | undefined) => {
               <MemoizedBucketsHomeView 
                 buckets={enhancedBuckets}
                 bucketTotals={bucketTotals}
-                grandTotal={grandTotal}
                 orphanedCount={orphanedCount}
                 shares={shares}
                 pendingShares={pendingShares}
@@ -1031,9 +1019,9 @@ const splitTimestamp = (ts: string | null | undefined) => {
             } />
 
             <Route path="/archive" element={
-              <MemoizedArchiveView 
+              <MemoizedArchiveView
                 buckets={enhancedBuckets}
-                transactions={transactions}
+                bucketTotals={bucketTotals}
                 onBack={() => navigate(-1)}
                 onRefresh={handleRefresh}
               />
