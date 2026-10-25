@@ -427,24 +427,30 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
               {(loading || deleting) && <Loader2 className="w-4 h-4 animate-spin" />}
               {editingTransaction ? 'Update Transaction' : 'Save Transaction'}
             </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              className="w-full rounded-full bg-white text-zinc-900 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all"
-            >
-              Clear
-            </button>
 
-            {editingTransaction && (
+            {/* Clear and Delete are pushed well below the primary action so a
+                second tap right after Update/Save doesn't accidentally land
+                on them - Delete especially. */}
+            <div className="flex flex-col gap-3 mt-8">
               <button
                 type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={loading || deleting}
-                className="w-full rounded-full bg-red-100 text-red-600 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all disabled:opacity-50"
+                onClick={handleClear}
+                className="w-full rounded-full bg-white text-zinc-900 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all"
               >
-                Delete Transaction
+                Clear
               </button>
-            )}
+
+              {editingTransaction && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={loading || deleting}
+                  className="w-full rounded-full bg-red-100 text-red-600 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all disabled:opacity-50"
+                >
+                  Delete Transaction
+                </button>
+              )}
+            </div>
           </div>
         </form>
       )}

@@ -22,6 +22,7 @@ import { cn, downloadCSV } from './lib/utils';
 import { logActivity } from './lib/activity';
 import { useBucketPreferences } from './lib/preferences';
 import { fetchAllRows } from './lib/fetchAll';
+import { notifyError, ERROR_TOAST_EVENT } from './lib/toast';
 
 // Memoize sub-components for performance
 const MemoizedBucketsHomeView = React.memo(BucketsHomeView);
@@ -103,6 +104,17 @@ export default function App() {
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
+
+  // Surface errors reported from anywhere in the app (via notifyError) as a
+  // toast, without having to thread pushToast through every component.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail === 'string') pushToast(detail);
+    };
+    window.addEventListener(ERROR_TOAST_EVENT, handler);
+    return () => window.removeEventListener(ERROR_TOAST_EVENT, handler);
+  }, [pushToast]);
 
   // Refs so realtime callbacks (set up once per session) always see fresh values
   // without needing to tear down and resubscribe the channels.
@@ -310,6 +322,15 @@ export default function App() {
         supabase.rpc('get_bucket_totals')
       ]);
 
+      // If the core buckets query itself failed, bail without overwriting
+      // everything with empty arrays - that would wipe the screen (and the
+      // SWR cache's last-good view) on a transient network error. Keep what's
+      // showing and tell the user to retry.
+      if (bucketsRes.error) {
+        notifyError('Could not refresh your data. Check your connection and try again.', bucketsRes.error);
+        return;
+      }
+
       if (profilesRes.data) {
         const profileMap: Record<string, string> = {};
         profilesRes.data.forEach(p => {
@@ -337,6 +358,7 @@ export default function App() {
       const activeBucketIds = activeBuckets.map(b => b.id);
 
       let transactionsData: Transaction[] = [];
+      let txFetchFailed = false;
       if (activeBucketIds.length > 0) {
         let query = supabase
           .from('transactions')
@@ -352,7 +374,13 @@ export default function App() {
         }
 
         const { data, error } = await query;
-        if (!error && data) {
+        if (error) {
+          // Don't let a failed fetch read as "no transactions" - that's the
+          // worst way for a ledger to fail. Surface it and keep whatever's
+          // already on screen rather than replacing it with an empty list.
+          txFetchFailed = true;
+          notifyError('Could not load transactions. Check your connection and try again.', error);
+        } else if (data) {
           transactionsData = data;
         }
       }
@@ -371,11 +399,13 @@ export default function App() {
       setOrphanedCount(orphanedRes.count || 0);
       setBucketTotals(totalsMap);
 
-      setTransactions(transactionsData.sort((a, b) => {
-        const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
-        if (dateDiff !== 0) return dateDiff;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }));
+      if (!txFetchFailed) {
+        setTransactions(transactionsData.sort((a, b) => {
+          const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        }));
+      }
 
       try {
         localStorage.setItem('sw_buckets', JSON.stringify(allBuckets));
@@ -385,7 +415,7 @@ export default function App() {
         console.warn('Failed to save cache', e);
       }
     } catch (err) {
-      console.error("Error fetching data:", err);
+      notifyError('Could not load your data. Check your connection and try again.', err);
     } finally {
       setIsAppLoading(false);
       setIsDataLoading(false);
@@ -591,7 +621,7 @@ export default function App() {
       setIsAddingBucket(false);
       debouncedFetchData();
     } catch (err: any) {
-      console.error(err.message);
+      notifyError('Could not create the bucket. Check your connection and try again.', err);
     } finally {
       setIsBucketLoading(false);
     }
@@ -601,7 +631,7 @@ export default function App() {
     if (isExporting) return;
 
     if (enhancedSelectedBucket && enhancedSelectedBucket.user_id !== session.user.id) {
-      console.error('Only the owner of this bucket can export its data.');
+      notifyError('Only the owner of this bucket can export its data.');
       return;
     }
 
@@ -669,7 +699,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
 
       downloadCSV(exportData, fileName);
     } catch (error) {
-      console.error('Export failed:', error);
+      notifyError('Export failed. Check your connection and try again.', error);
     } finally {
       setIsExporting(false);
     }

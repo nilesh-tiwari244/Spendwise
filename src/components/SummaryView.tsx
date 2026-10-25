@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase, type Category, type Bucket } from '../lib/supabase';
+import { notifyError } from '../lib/toast';
 import { ArrowLeft, Filter, ClipboardList, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { fetchAllRows } from '../lib/fetchAll';
@@ -80,7 +81,7 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
       setCategoryTotals(totalsMap);
       setUncategorizedTotal(blankTotal);
     } catch (err) {
-      console.error('Error fetching summary:', err);
+      notifyError('Could not load the summary. Check your connection and try again.', err);
     } finally {
       setIsLoading(false);
     }

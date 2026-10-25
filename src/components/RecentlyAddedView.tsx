@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
+import { notifyError } from '../lib/toast';
 import { formatCurrency, cn, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -90,7 +91,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
         setHasMore(false);
       }
     } catch (err) {
-      console.error('Error fetching more recent transactions:', err);
+      notifyError('Could not load recent transactions. Check your connection and try again.', err);
       setHasMore(false);
     } finally {
       setIsFetchingMore(false);

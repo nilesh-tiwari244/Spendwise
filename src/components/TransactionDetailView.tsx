@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, type Transaction, type BucketShare } from '../lib/supabase';
+import { notifyError } from '../lib/toast';
 import { formatCurrency, formatDate, cn, formatUserDisplay } from '../lib/utils';
 import { ArrowLeft, Calendar, Tag, FileText, ExternalLink, Mail, History, Loader2, GitCommit } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -31,7 +32,7 @@ export function TransactionDetailView({ transaction, shares, profiles, ownerEmai
         if (error) throw error;
         setHistoryLogs(data || []);
       } catch (err) {
-        console.error('Error fetching history:', err);
+        notifyError('Could not load edit history. Check your connection and try again.', err);
       } finally {
         setLoadingHistory(false);
       }

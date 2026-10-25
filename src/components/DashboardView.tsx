@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
+import { notifyError } from '../lib/toast';
 import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
 import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList, Search } from 'lucide-react';
 
@@ -153,7 +154,7 @@ export function DashboardView({
         setHasMore(false);
       }
     } catch (err) {
-      console.error('Error fetching more transactions:', err);
+      notifyError('Could not load transactions. Check your connection and try again.', err);
       setHasMore(false);
     } finally {
       setIsFetchingMore(false);

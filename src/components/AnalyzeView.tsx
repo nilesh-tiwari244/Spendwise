@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
+import { notifyError } from '../lib/toast';
 import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay, UNCATEGORIZED_ID, UNCATEGORIZED_LABEL } from '../lib/utils';
 import { fetchAllRows } from '../lib/fetchAll';
 import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Check } from 'lucide-react';
@@ -224,7 +225,7 @@ const runAnalysis = async () => {
         setOpeningBalance(0);
       }
     } catch (err) {
-      console.error('Analysis failed:', err);
+      notifyError('Search failed. Check your connection and try again.', err);
     } finally {
       setIsAnalyzing(false);
     }

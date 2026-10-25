@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, type ActivityLog, type Bucket } from '../lib/supabase';
+import { notifyError } from '../lib/toast';
 import { formatDate, cn } from '../lib/utils';
 import { ArrowLeft, History, User, Info, AlertCircle, UserPlus, UserMinus, Shield, Edit, Plus, Trash2, RotateCcw, Archive } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -30,7 +31,7 @@ export function ActivityLogView({ bucket, profiles, onBack }: ActivityLogViewPro
       if (error) throw error;
       if (data) setLogs(data);
     } catch (err) {
-      console.error('Error fetching logs:', err);
+      notifyError('Could not load activity. Check your connection and try again.', err);
     } finally {
       setLoading(false);
     }
