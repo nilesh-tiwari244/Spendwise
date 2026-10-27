@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, type Transaction, type BucketShare } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
-import { formatCurrency, formatDate, cn, formatUserDisplay } from '../lib/utils';
+import { formatCurrency, formatDate, cn, formatUserDisplay, wasUpdatedAfterAdding } from '../lib/utils';
 import { ArrowLeft, Calendar, Tag, FileText, ExternalLink, Mail, History, Loader2, GitCommit } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -50,9 +50,9 @@ export function TransactionDetailView({ transaction, shares, profiles, ownerEmai
     formattedAddedDate = `${timeStr} ${dateStr}`;
   }
 
-  // Format the updated_at timestamp (6 hour safety check)
+  // Format the updated_at timestamp
   let formattedUpdatedDate = '';
-  const isUpdated = transaction.updated_at && transaction.created_at && (new Date(transaction.updated_at).getTime() - new Date(transaction.created_at).getTime() > 21600000);
+  const isUpdated = wasUpdatedAfterAdding(transaction.created_at, transaction.updated_at);
   
   if (isUpdated && transaction.updated_at) {
     const d = new Date(transaction.updated_at);

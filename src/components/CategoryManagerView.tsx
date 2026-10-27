@@ -1,17 +1,23 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { supabase, type Category, type Bucket } from '../lib/supabase';
+import { matchCategorySuggestions } from '../lib/utils';
 import { ArrowLeft, Loader2, Plus, Trash2, Edit2 } from 'lucide-react';
 import { ConfirmationModal } from './ConfirmationModal';
 
 interface CategoryManagerViewProps {
   categories: Category[];
+  // Names used in the user's other buckets (see categoryNameSuggestions),
+  // offered while typing a new name so the same spelling gets reused.
+  suggestions?: string[];
   selectedBucket: Bucket | null;
   onBack: () => void;
   onSuccess: () => void;
 }
 
-export function CategoryManagerView({ categories, selectedBucket, onBack, onSuccess }: CategoryManagerViewProps) {
+export function CategoryManagerView({ categories, suggestions = [], selectedBucket, onBack, onSuccess }: CategoryManagerViewProps) {
   const [newName, setNewName] = useState('');
+  const newNameInputRef = useRef<HTMLInputElement>(null);
+  const visibleSuggestions = useMemo(() => matchCategorySuggestions(suggestions, newName), [suggestions, newName]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -125,8 +131,10 @@ export function CategoryManagerView({ categories, selectedBucket, onBack, onSucc
             <label className="block text-xs font-black uppercase mb-1">New Category Name</label>
             <div className="flex gap-2">
               <input
+                ref={newNameInputRef}
                 type="text"
                 required
+                autoComplete="off"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 className="brutal-input"
@@ -140,6 +148,30 @@ export function CategoryManagerView({ categories, selectedBucket, onBack, onSucc
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
               </button>
             </div>
+            {visibleSuggestions.length > 0 && (
+              <div className="mt-3">
+                <p className="text-[10px] font-black uppercase text-zinc-400 mb-1.5">
+                  {newName.trim() ? 'Matching names in your other buckets' : 'Used in your other buckets'}
+                </p>
+                {/* Tapping a name only fills the box - the + button still adds it */}
+                <div className="flex flex-wrap gap-1.5">
+                  {visibleSuggestions.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => {
+                        setNewName(name);
+                        setError(null);
+                        newNameInputRef.current?.focus();
+                      }}
+                      className="px-3 py-1.5 rounded-full bg-white shadow-sm text-xs font-bold text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           {error && <p className="text-red-600 text-xs font-bold uppercase">{error}</p>}
         </form>

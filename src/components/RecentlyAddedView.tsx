@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
-import { formatCurrency, cn, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
+import { formatCurrency, cn, formatUserDisplay, truncateRemarks, getDateParts, wasUpdatedAfterAdding } from '../lib/utils';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -153,7 +153,7 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
               }
 
               let formattedUpdatedDate = '';
-              const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
+              const isUpdated = wasUpdatedAfterAdding(t.created_at, t.updated_at);
               
               if (isUpdated && t.updated_at) {
                 const d = new Date(t.updated_at);

@@ -1,8 +1,8 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useNavigate, useNavigationType } from 'react-router-dom';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
-import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
+import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts, wasUpdatedAfterAdding } from '../lib/utils';
 import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList, Search, Menu } from 'lucide-react';
 
 function getContrastColor(hexColor: string | undefined): string {
@@ -14,6 +14,11 @@ function getContrastColor(hexColor: string | undefined): string {
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
   return brightness > 128 ? 'text-zinc-900' : 'text-white';
 }
+
+// Where each bucket's list was scrolled to when a transaction was opened from
+// it, so coming back lands on the same spot instead of the top. Lives only
+// while the app is open, and an entry is removed once it has been used.
+const savedListPositions = new Map<string, { y: number; rows: number }>();
 
 function TransactionSkeleton() {
   return (
@@ -69,6 +74,7 @@ export function DashboardView({
 }: DashboardViewProps) {
   
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
 
   const activeShareEmails = useMemo(() => shares.filter(s => s.bucket_id === bucket.id && s.status === 'accepted').map(s => s.shared_with_email), [shares, bucket.id]);
 
@@ -80,15 +86,40 @@ export function DashboardView({
   // the window because it was deleted elsewhere" apart from "was only ever
   // loaded further down via infinite scroll and isn't in the window at all".
   const knownWindowIdsRef = useRef<Set<string>>(new Set());
+  // A saved list position to return to, applied once the first page of rows
+  // has loaded and rendered (restoreReadyRef flips when it has).
+  const restoreRef = useRef<{ y: number; rows: number } | null>(null);
+  const restoreReadyRef = useRef(false);
 
   useEffect(() => {
+    // Coming back (Back button or gesture) from a transaction opened from
+    // this list: load at least as many rows as were showing, then return to
+    // the same spot. Any other way in starts at the top. The entry is only
+    // deleted once used, so StrictMode's double-run of effects can't lose it.
+    const saved = savedListPositions.get(bucket.id);
+    if (saved && navigationType === 'POP') {
+      restoreRef.current = saved;
+    } else {
+      restoreRef.current = null;
+      savedListPositions.delete(bucket.id);
+    }
+    restoreReadyRef.current = false;
+
     setLocalTransactions([]);
     setHasMore(true);
     setIsFetchingMore(false);
     knownWindowIdsRef.current = new Set();
-    loadMore(0);
+    loadMore(0, restoreRef.current ? restoreRef.current.rows : undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bucket.id]);
+
+  useLayoutEffect(() => {
+    if (!restoreReadyRef.current || !restoreRef.current) return;
+    window.scrollTo(0, restoreRef.current.y);
+    restoreRef.current = null;
+    restoreReadyRef.current = false;
+    savedListPositions.delete(bucket.id);
+  }, [localTransactions, bucket.id]);
 
   useEffect(() => {
     const incomingIds = new Set(transactions.map(t => t.id));
@@ -119,9 +150,12 @@ export function DashboardView({
   // longer guaranteed to already contain this bucket's data (it only
   // refetches on explicit triggers, not on navigation), so without this the
   // view could sit empty until something else happened to trigger a refetch.
-  const loadMore = async (offsetOverride?: number) => {
+  // minRows asks the first fetch for more than one page (capped at the
+  // server's 1,000-row limit), used when returning to a saved position.
+  const loadMore = async (offsetOverride?: number, minRows?: number) => {
     if (offsetOverride === undefined && (isFetchingMore || !hasMore)) return;
     setIsFetchingMore(true);
+    const pageSize = Math.min(Math.max(100, minRows ?? 0), 1000);
 
     try {
       let query = supabase
@@ -136,7 +170,7 @@ export function DashboardView({
       const { data, error } = await query
         .order('date', { ascending: false })
         .order('created_at', { ascending: false })
-        .range(offset, offset + 99);
+        .range(offset, offset + pageSize - 1);
 
       if (error) throw error;
       if (currentBucketId !== bucket.id) return;
@@ -151,7 +185,8 @@ export function DashboardView({
             return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
           });
         });
-        if (data.length < 100) setHasMore(false);
+        if (offsetOverride === 0 && restoreRef.current) restoreReadyRef.current = true;
+        if (data.length < pageSize) setHasMore(false);
       } else {
         setHasMore(false);
       }
@@ -187,6 +222,12 @@ export function DashboardView({
   // if the amount is still non-zero after rounding.
   const balanceDigits = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(Math.abs(totalBalance));
   const isNegativeBalance = totalBalance < 0 && balanceDigits !== '0';
+
+  // Remember where the list is, so coming back from the transaction about to
+  // be opened lands on the same spot instead of the top.
+  const rememberPlace = () => {
+    savedListPositions.set(bucket.id, { y: window.scrollY, rows: localTransactions.length });
+  };
 
   return (
     <div className="space-y-4">
@@ -283,7 +324,7 @@ export function DashboardView({
               }
 
               let formattedUpdatedDate = '';
-              const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
+              const isUpdated = wasUpdatedAfterAdding(t.created_at, t.updated_at);
               if (isUpdated && t.updated_at) {
                 const d = new Date(t.updated_at);
                 formattedUpdatedDate = `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} ${d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
@@ -296,7 +337,11 @@ export function DashboardView({
                     "brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer hover:shadow-md active:bg-zinc-100 transition-all touch-manipulation",
                     t.is_optimistic && "opacity-60"
                   )}
-                  onClick={() => !t.is_optimistic && onViewTransaction(t)}
+                  onClick={() => {
+                    if (t.is_optimistic) return;
+                    rememberPlace();
+                    onViewTransaction(t);
+                  }}
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
                     <div className={cn(
@@ -360,6 +405,7 @@ export function DashboardView({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          rememberPlace();
                           onEditTransaction(t);
                         }}
                         className="w-10 h-10 rounded-full bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-sm active:bg-zinc-200 touch-manipulation"

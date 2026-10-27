@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { supabase, type Transaction, type Category, type Bucket, type BucketShare } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
-import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay, UNCATEGORIZED_ID, UNCATEGORIZED_LABEL } from '../lib/utils';
+import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay, wasUpdatedAfterAdding, UNCATEGORIZED_ID, UNCATEGORIZED_LABEL } from '../lib/utils';
 import { fetchAllRows } from '../lib/fetchAll';
 import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -713,7 +713,7 @@ const runAnalysis = async () => {
                   }
 
                   let formattedUpdatedDate = '';
-                  const isUpdated = t.updated_at && t.created_at && (new Date(t.updated_at).getTime() - new Date(t.created_at).getTime() > 21600000);
+                  const isUpdated = wasUpdatedAfterAdding(t.created_at, t.updated_at);
                   
                   if (isUpdated && t.updated_at) {
                     const d = new Date(t.updated_at);

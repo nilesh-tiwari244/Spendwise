@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface AuthViewProps {
@@ -88,15 +88,6 @@ export function AuthView({ onRecoveryComplete, initialIsRecovery = false }: Auth
           <p className="text-xs font-bold text-zinc-500 mb-8 leading-relaxed">
             SpendWise is a clean, distraction-free way to track spending — solo, or shared with people you trust.
           </p>
-        )}
-
-        {isForgotPassword && !message && (
-          <div className="mb-6 p-3 rounded-2xl bg-zinc-100 flex gap-2 items-start">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <p className="text-[10px] font-bold uppercase leading-tight">
-              Note: If the email link points to "localhost", replace it with this site's URL in your browser.
-            </p>
-          </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">

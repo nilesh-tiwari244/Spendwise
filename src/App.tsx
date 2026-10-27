@@ -18,7 +18,7 @@ import { Sidebar } from './components/Sidebar';
 import { ToastStack, type ToastMessage } from './components/Toast';
 import { Loader2, Menu, ArrowLeft, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, downloadCSV } from './lib/utils';
+import { cn, downloadCSV, categoryNameSuggestions } from './lib/utils';
 import { logActivity } from './lib/activity';
 import { useBucketPreferences } from './lib/preferences';
 import { fetchAllRows } from './lib/fetchAll';
@@ -957,8 +957,9 @@ const splitTimestamp = (ts: string | null | undefined) => {
             <Route path="/bucket/:bucketId/categories" element={
               <BucketRouteWrapper buckets={enhancedBuckets}>
                 {(bucket) => (
-                  <MemoizedCategoryManagerView 
-                    categories={categories.filter(c => c.bucket_id === bucket.id)} 
+                  <MemoizedCategoryManagerView
+                    categories={categories.filter(c => c.bucket_id === bucket.id)}
+                    suggestions={categoryNameSuggestions(categories, bucket.id)}
                     selectedBucket={bucket}
                     onBack={() => navigate(-1)}
                     onSuccess={handleRefresh}
