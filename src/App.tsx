@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, useMatch, Navigate, useParams } from 'react-router-dom';
 import { supabase, type Category, type Transaction, type Bucket, type BucketShare } from './lib/supabase';
 import { AuthView } from './components/AuthView';
 import { DashboardView } from './components/DashboardView';
@@ -61,6 +61,9 @@ function BucketRouteWrapper({ buckets, children }: { buckets: Bucket[], children
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  // The bucket screen draws its own top section (menu, name, balance) that
+  // scrolls away with the list, so the shared sticky header is hidden there.
+  const isBucketDashboard = useMatch('/bucket/:bucketId/dashboard') !== null;
 
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -803,7 +806,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
         isExporting={isExporting}
       />
 
-      <header className="sticky top-0 z-30 bg-white shadow-sm px-4 py-4">
+      <header className={cn("sticky top-0 z-30 bg-white shadow-sm px-4 py-4", isBucketDashboard && "hidden")}>
         <div className="max-w-md mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <button
@@ -848,7 +851,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
         </div>
       </header>
 
-      <main className="max-w-md mx-auto p-4">
+      <main className={cn("max-w-md mx-auto p-4", isBucketDashboard && "pt-2")}>
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname.split('/')[1] || '/'}>
             
@@ -886,6 +889,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     profiles={profiles}
                     isLoading={isDataLoading}
                     totalBalance={bucketTotals[bucket.id] || 0}
+                    onOpenMenu={() => setIsSidebarOpen(true)}
                     onEditTransaction={(t) => {
                       setEditingTransaction(t);
                       navigate(`/bucket/${bucket.id}/add-transaction`);

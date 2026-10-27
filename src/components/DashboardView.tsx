@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
 import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts } from '../lib/utils';
-import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList, Search } from 'lucide-react';
+import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList, Search, Menu } from 'lucide-react';
 
 function getContrastColor(hexColor: string | undefined): string {
   if (!hexColor || hexColor === '#ffffff' || hexColor === 'transparent') return 'text-zinc-900';
@@ -49,6 +49,7 @@ interface DashboardViewProps {
   onEditTransaction: (transaction: Transaction) => void;
   onViewTransaction: (transaction: Transaction) => void;
   onSearchBucket: () => void;
+  onOpenMenu?: () => void;
   totalBalance: number;
 }
 
@@ -63,6 +64,7 @@ export function DashboardView({
   onEditTransaction,
   onViewTransaction,
   onSearchBucket,
+  onOpenMenu,
   totalBalance
 }: DashboardViewProps) {
   
@@ -180,69 +182,87 @@ export function DashboardView({
 
   const contrastColor = useMemo(() => getContrastColor(bucket.color), [bucket.color]);
 
+  // The ₹ is drawn smaller than the digits, so the amount is split here.
+  // Rounds the same way formatCurrency does; the minus sign is only shown
+  // if the amount is still non-zero after rounding.
+  const balanceDigits = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(Math.abs(totalBalance));
+  const isNegativeBalance = totalBalance < 0 && balanceDigits !== '0';
+
   return (
     <div className="space-y-4">
-      {/* Balance Card */}
-      <section 
-        className={cn(
-          "brutal-card p-3 transition-colors duration-300",
-          bucket.color ? contrastColor : "bg-zinc-900 text-white"
-        )}
-        style={bucket.color ? { backgroundColor: bucket.color } : {}}
-      >
-        <h3 className="text-xs font-black uppercase mb-1">
-          <span className="opacity-60">Available Balance — </span>
-          <span>{bucket.name}</span>
-        </h3>
-        <div className="text-4xl font-black tracking-tighter">
-          {formatCurrency(totalBalance)}
-        </div>
-      </section>
-
-      {/* Actions */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={onSearchBucket}
-          className="brutal-button bg-white text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
-        >
-          <Search className="w-5 h-5" />
-          <span className="font-black uppercase text-sm">Search</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/bucket/${bucket.id}/activity`)}
-          className="brutal-button bg-zinc-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
-        >
-          <History className="w-5 h-5" />
-          <span className="font-black uppercase text-sm">Activity</span>
-        </button>
-        {canEdit && (
+      {/* Top section. App hides its sticky header on this screen, so all of
+          this scrolls away with the list and nothing stays pinned above it. */}
+      <div>
+        <div className="flex items-center gap-1 min-h-14 -mx-2">
           <button
             type="button"
-            onClick={() => navigate(`/bucket/${bucket.id}/categories`)}
-            className="brutal-button bg-white text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
+            onClick={onOpenMenu}
+            aria-label="Open menu"
+            className="w-11 h-11 flex-none flex items-center justify-center rounded-full hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
           >
-            <Tag className="w-5 h-5" />
-            <span className="font-black uppercase text-sm">Categories</span>
+            <Menu className="w-[22px] h-[22px]" />
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => navigate(`/bucket/${bucket.id}/summary`)}
-          className="brutal-button bg-sky-100 text-zinc-900 flex items-center justify-center gap-2 py-2 hover:bg-sky-200 active:bg-sky-300 transition-colors touch-manipulation"
+          <h1 className="flex-1 min-w-0 text-center text-[17px] leading-[22px] font-bold tracking-tight [overflow-wrap:anywhere]">
+            {bucket.name}
+          </h1>
+          <button
+            type="button"
+            onClick={() => navigate(`/bucket/${bucket.id}/activity`)}
+            aria-label="Activity"
+            className="w-11 h-11 flex-none flex items-center justify-center rounded-full hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
+          >
+            <History className="w-[22px] h-[22px]" />
+          </button>
+        </div>
+
+        {/* Balance in the bucket's own colour. A bucket with no colour shows
+            white, matching how Home paints it. */}
+        <section
+          className={cn(
+            "brutal-card mt-1 px-4 py-3 flex items-start justify-center gap-0.5 tabular-nums transition-colors duration-300",
+            contrastColor
+          )}
+          style={{ backgroundColor: bucket.color || '#ffffff' }}
         >
-          <ClipboardList className="w-5 h-5" />
-          <span className="font-black uppercase text-sm">Summary</span>
-        </button>
+          {isNegativeBalance && (
+            <span className="text-[46px] leading-[54px] font-extrabold tracking-[-0.04em]">−</span>
+          )}
+          <span className="text-2xl leading-[38px] font-bold">₹</span>
+          <span className="text-[46px] leading-[54px] font-extrabold tracking-[-0.04em]">{balanceDigits}</span>
+        </section>
+
+        <div className="flex justify-center gap-2 mt-3.5">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => navigate(`/bucket/${bucket.id}/categories`)}
+              className="h-11 flex items-center gap-1.5 px-3 rounded-full bg-white text-zinc-900 shadow-sm text-sm font-semibold hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
+            >
+              <Tag className="w-[17px] h-[17px]" />
+              <span>Categories</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onSearchBucket}
+            className="h-11 flex items-center gap-1.5 px-3 rounded-full bg-white text-zinc-900 shadow-sm text-sm font-semibold hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
+          >
+            <Search className="w-[17px] h-[17px]" />
+            <span>Search</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/bucket/${bucket.id}/summary`)}
+            className="h-11 flex items-center gap-1.5 px-3 rounded-full bg-white text-zinc-900 shadow-sm text-sm font-semibold hover:bg-zinc-100 active:bg-zinc-200 transition-colors touch-manipulation"
+          >
+            <ClipboardList className="w-[17px] h-[17px]" />
+            <span>Summary</span>
+          </button>
+        </div>
       </div>
 
       {/* Transactions List */}
       <section className="space-y-2">
-        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 pb-1">
-          Recent Transactions — <span className="text-zinc-400">{bucket.name}</span>
-        </h3>
-
         {localTransactions.length === 0 ? (
           isLoading || isFetchingMore ? (
             <TransactionSkeleton />
@@ -366,12 +386,15 @@ export function DashboardView({
         )}
       </section>
 
+      {/* z-30 puts this on the HOME bar's layer, so the side menu and
+          dialogs (backdrops at z-40 and up) cover it instead of it floating
+          on top of their dimmed background. */}
       {canEdit && (
         <button
           type="button"
           onClick={() => navigate(`/bucket/${bucket.id}/add-transaction`)}
           aria-label="Add New Transaction"
-          className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full bg-zinc-900 text-white shadow-lg hover:shadow-xl hover:bg-zinc-800 active:scale-90 transition-all flex items-center justify-center touch-manipulation"
+          className="fixed bottom-24 right-4 z-30 w-14 h-14 rounded-full bg-zinc-900 text-white shadow-lg hover:shadow-xl hover:bg-zinc-800 active:scale-90 transition-all flex items-center justify-center touch-manipulation"
         >
           <Plus className="w-6 h-6" />
         </button>
