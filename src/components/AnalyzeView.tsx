@@ -55,6 +55,31 @@ function getContrastColor(hexColor: string | undefined): string {
   return brightness > 128 ? 'text-zinc-900' : 'text-white';
 }
 
+// What the keyword box searches. Each word has to turn up somewhere in a
+// transaction - its remarks, its category's name or, for a number, its amount -
+// in any order, so "coffee tan" finds "tan coffee" and "dining tan" finds
+// Dining transactions that mention tan. Returns one PostgREST or-filter per
+// word; applied together, every word must match.
+function keywordFilters(keyword: string, categories: { id: string; name: string }[]): string[] {
+  return keyword.trim().split(/\s+/).filter(Boolean).map(word => {
+    // % and _ match themselves here instead of acting as wildcards.
+    const pattern = `%${word.replace(/[\\%_]/g, ch => `\\${ch}`)}%`;
+    const conditions = [`remarks.ilike.${quoteFilterValue(pattern)}`];
+    const lower = word.toLowerCase();
+    const categoryIds = categories.filter(c => c.name.toLowerCase().includes(lower)).map(c => c.id);
+    if (categoryIds.length > 0) conditions.push(`category_id.in.(${categoryIds.join(',')})`);
+    const amount = word.replace(/[,₹]/g, '');
+    if (/^\d+(\.\d+)?$/.test(amount)) conditions.push(`amount.eq.${quoteFilterValue(amount)}`);
+    return conditions.join(',');
+  });
+}
+
+// Filter values inside or=(...) are double-quoted, so commas, dots and
+// brackets typed in a keyword can't break the filter; " and \ are escaped.
+function quoteFilterValue(value: string): string {
+  return `"${value.replace(/["\\]/g, ch => `\\${ch}`)}"`;
+}
+
 export function AnalyzeView({ categories, buckets, shares, profiles, selectedBucket, user, initialParams, persistedState, onPersistedStateChange, onBack, onViewTransaction }: AnalyzeViewProps) {
   // Input States (Draft Filters) — seeded from persistedState when we're
   // remounting after a round-trip (e.g. viewing a transaction and going
@@ -180,6 +205,13 @@ const runAnalysis = async () => {
       return q;
     };
 
+    // Keyword words match category names only within the buckets being
+    // searched, which keeps each word's id list short.
+    const keywordConditions = keywordFilters(
+      keyword,
+      categories.filter(c => c.bucket_id && resolvedBucketIds.includes(c.bucket_id))
+    );
+
     const buildQuery = () => {
       let query = supabase
         .from('transactions')
@@ -192,7 +224,7 @@ const runAnalysis = async () => {
       if (endDate) query = query.lte('date', endDate + 'T23:59:59');
       if (minAmount) query = query.gte('amount', minAmount);
       if (maxAmount) query = query.lte('amount', maxAmount);
-      if (keyword) query = query.ilike('remarks', `%${keyword}%`);
+      for (const condition of keywordConditions) query = query.or(condition);
 
       return query
         .order('date', { ascending: false })
@@ -405,7 +437,7 @@ const runAnalysis = async () => {
           <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
           <input
             type="text"
-            placeholder="Keyword..."
+            placeholder="Remarks, category or amount..."
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             className="brutal-input pl-10"
