@@ -1026,11 +1026,12 @@ const splitTimestamp = (ts: string | null | undefined) => {
             } />
 
             <Route path="/recently-added" element={
-              <MemoizedRecentlyAddedView 
+              <MemoizedRecentlyAddedView
                 transactions={activeGlobalTransactions}
                 buckets={activeBuckets}
                 shares={shares}
                 profiles={profiles}
+                user={session.user}
                 onBack={() => navigate(-1)}
                 onViewTransaction={(t) => {
                   setSelectedTransaction(t);
@@ -1040,10 +1041,11 @@ const splitTimestamp = (ts: string | null | undefined) => {
             } />
 
             <Route path="/deleted" element={
-              <MemoizedDeletedTransactionsView 
+              <MemoizedDeletedTransactionsView
                 buckets={enhancedBuckets}
                 shares={shares}
                 profiles={profiles}
+                user={session.user}
                 onBack={() => navigate(-1)}
                 onSuccess={handleRefresh}
                 onViewTransaction={(t) => {

@@ -691,7 +691,7 @@ const runAnalysis = async () => {
               <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Transactions</h3>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-1.5">
               {analyzedTransactions.length === 0 ? (
                 <div className="text-center py-8 rounded-2xl bg-zinc-100">
                   <p className="text-[10px] font-black uppercase text-zinc-400">No transactions match these filters</p>
@@ -728,16 +728,16 @@ const runAnalysis = async () => {
                       whileHover={{ x: 4 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => onViewTransaction(t)}
-                      className="brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer bg-white"
+                      className="brutal-card pl-1 pr-4 py-1 flex items-start justify-between gap-2 cursor-pointer bg-white"
                     >
                       <div className="flex items-start gap-2 min-w-0 flex-1">
                         <div className={cn(
-                          "w-14 h-[72px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                          "w-14 h-[58px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.05] text-zinc-900",
                           t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                         )}>
-                          <span className="text-base">{dateParts.day}</span>
-                          <span className="text-xs uppercase">{dateParts.month}</span>
-                          <span className="text-xs">{dateParts.year}</span>
+                          <span className="text-[15px]">{dateParts.day}</span>
+                          <span className="text-[11px] uppercase">{dateParts.month}</span>
+                          <span className="text-[11px]">{dateParts.year}</span>
                         </div>
 
                         <div className="min-w-0 flex-1">
@@ -755,21 +755,16 @@ const runAnalysis = async () => {
                               {truncateRemarks(t.remarks) || 'No Remarks'}
                             </div>
 
-                            {t.last_edited_by && (
-                              <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
-                                ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
-                              </div>
-                            )}
-
-                            {formattedAddedDate && (
-                              <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
-                                ADDED ON:- {formattedAddedDate}
+                            {(t.last_edited_by || formattedAddedDate) && (
+                              <div className="text-[10px] font-black text-zinc-500 break-all">
+                                {t.last_edited_by && formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
+                                {t.last_edited_by && formattedAddedDate ? ` (${formattedAddedDate})` : formattedAddedDate}
                               </div>
                             )}
 
                             {formattedUpdatedDate && (
                               <div className="text-[10px] font-black uppercase text-blue-500 break-all">
-                                UPDATED ON:- {formattedUpdatedDate}
+                                EDITED:- {formattedUpdatedDate}
                               </div>
                             )}
 

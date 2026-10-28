@@ -313,7 +313,7 @@ export function DashboardView({
             </div>
           )
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {localTransactions.map((t) => {
               const dateParts = getDateParts(t.date);
               
@@ -334,7 +334,7 @@ export function DashboardView({
                 <div
                   key={t.id}
                   className={cn(
-                    "brutal-card pl-1 pr-4 py-2 flex items-start justify-between gap-2 cursor-pointer hover:shadow-md active:bg-zinc-100 transition-all touch-manipulation",
+                    "brutal-card pl-1 pr-4 py-1 flex items-start justify-between gap-2 cursor-pointer hover:shadow-md active:bg-zinc-100 transition-all touch-manipulation",
                     t.is_optimistic && "opacity-60"
                   )}
                   onClick={() => {
@@ -344,13 +344,14 @@ export function DashboardView({
                   }}
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
+                    {/* 58px = a normal tile's text: category, remark, name line */}
                     <div className={cn(
-                      "w-14 h-[72px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                      "w-14 h-[58px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.05] text-zinc-900",
                       t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                     )}>
-                      <span className="text-base">{dateParts.day}</span>
-                      <span className="text-xs uppercase">{dateParts.month}</span>
-                      <span className="text-xs">{dateParts.year}</span>
+                      <span className="text-[15px]">{dateParts.day}</span>
+                      <span className="text-[11px] uppercase">{dateParts.month}</span>
+                      <span className="text-[11px]">{dateParts.year}</span>
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -366,35 +367,35 @@ export function DashboardView({
                           {truncateRemarks(t.remarks) || 'No Remarks'}
                         </div>
 
-                        {t.last_edited_by && (
-                          <div className={cn(
-                            "text-[10px] font-black uppercase break-all",
-                            !activeShareEmails.includes(t.last_edited_by) && t.last_edited_by !== ownerEmail && t.last_edited_by !== 'Unknown'
-                              ? "text-zinc-400"
-                              : "text-zinc-500"
-                          )}>
-                            ADDED BY:- {formatUserDisplay(t.last_edited_by || '', ownerEmail, activeShareEmails, profiles)}
-                          </div>
-                        )}
-
-                        {formattedAddedDate && (
-                          <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
-                            ADDED ON:- {formattedAddedDate}
+                        {/* Who saved it and when it was added, on one line:
+                            "Nilesh (14:53 27/10/2026)" - just the time if no
+                            name was saved. Removed members stay greyed out. */}
+                        {(t.last_edited_by || formattedAddedDate) && (
+                          <div className="text-[10px] font-black text-zinc-500 break-all">
+                            {t.last_edited_by && (
+                              <span className={cn(
+                                !activeShareEmails.includes(t.last_edited_by) && t.last_edited_by !== ownerEmail && t.last_edited_by !== 'Unknown'
+                                  && "text-zinc-400"
+                              )}>
+                                {formatUserDisplay(t.last_edited_by, ownerEmail, activeShareEmails, profiles)}
+                              </span>
+                            )}
+                            {t.last_edited_by && formattedAddedDate ? ` (${formattedAddedDate})` : formattedAddedDate}
                           </div>
                         )}
 
                         {formattedUpdatedDate && (
                           <div className="text-[10px] font-black uppercase text-blue-500 break-all">
-                            UPDATED ON:- {formattedUpdatedDate}
+                            EDITED:- {formattedUpdatedDate}
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end justify-between h-full min-h-[72px] flex-shrink-0">
+                  <div className="flex flex-col items-end justify-between h-full min-h-[58px] flex-shrink-0">
                     <div className={cn(
-                      "font-black text-xl tracking-tight whitespace-nowrap",
+                      "font-black text-xl leading-6 tracking-tight whitespace-nowrap",
                       t.type === 'Credit' ? "text-green-600" : "text-red-600"
                     )}>
                       {t.type === 'Credit' ? '+' : '-'}{formatCurrency(t.amount)}
@@ -408,9 +409,12 @@ export function DashboardView({
                           rememberPlace();
                           onEditTransaction(t);
                         }}
-                        className="w-10 h-10 rounded-full bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-sm active:bg-zinc-200 touch-manipulation"
+                        // Drawn at 34px so amount + pencil fit the 58px tile;
+                        // the invisible ::before ring keeps the old 40px
+                        // tap area so it's no easier to miss.
+                        className="relative w-[34px] h-[34px] rounded-full bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center p-0 shadow-sm active:bg-zinc-200 touch-manipulation before:content-[''] before:absolute before:-inset-[3px] before:rounded-full"
                       >
-                        <Edit2 className="w-5 h-5 text-zinc-900" />
+                        <Edit2 className="w-[18px] h-[18px] text-zinc-900" />
                       </button>
                     )}
                   </div>

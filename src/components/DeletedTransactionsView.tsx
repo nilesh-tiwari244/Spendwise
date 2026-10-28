@@ -10,12 +10,13 @@ interface DeletedTransactionsViewProps {
   buckets: Bucket[];
   shares: BucketShare[];
   profiles: Record<string, string>;
+  user: any;
   onBack: () => void;
   onSuccess: () => void;
   onViewTransaction: (transaction: Transaction) => void;
 }
 
-export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onSuccess, onViewTransaction }: DeletedTransactionsViewProps) {
+export function DeletedTransactionsView({ buckets, shares, profiles, user, onBack, onSuccess, onViewTransaction }: DeletedTransactionsViewProps) {
   const [deletedTransactions, setDeletedTransactions] = useState<Transaction[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [loading, setLoading] = useState<string | null>(null);
@@ -100,13 +101,16 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
             <p className="text-[10px] font-black uppercase text-zinc-400">Recycle bin is empty</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {deletedTransactions.map((t) => {
               const bucket = buckets.find(b => b.id === t.bucket_id);
               const dateParts = getDateParts(t.date);
               const bucketShares = shares.filter(s => s.bucket_id === t.bucket_id && s.status === 'accepted');
               const activeEmails = bucketShares.map(s => s.shared_with_email);
-              const ownerEmail = bucketShares[0]?.shared_by_email || '';
+              // A bucket nobody else uses has no share rows to name its
+              // owner, so fall back to the signed-in user when it's theirs
+              // (same as Search) - otherwise the owner shows as "(Removed)".
+              const ownerEmail = bucketShares[0]?.shared_by_email || (bucket?.user_id === user.id ? user.email : '');
 
               // Format the created_at timestamp
               let formattedAddedDate = '';
@@ -142,19 +146,19 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   key={t.id}
-                  className="brutal-card pl-1 pr-4 py-2 bg-white space-y-2 cursor-pointer hover:bg-zinc-50 transition-colors"
+                  className="brutal-card pl-1 pr-4 py-1 bg-white space-y-2 cursor-pointer hover:bg-zinc-50 transition-colors"
                   onClick={() => onViewTransaction(t)}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2 flex-1 min-w-0">
                       {/* Date Block */}
                       <div className={cn(
-                        "w-14 h-[72px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                        "w-14 h-[58px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.05] text-zinc-900",
                         t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                       )}>
-                        <span className="text-base">{dateParts.day}</span>
-                        <span className="text-xs uppercase">{dateParts.month}</span>
-                        <span className="text-xs">{dateParts.year}</span>
+                        <span className="text-[15px]">{dateParts.day}</span>
+                        <span className="text-[11px] uppercase">{dateParts.month}</span>
+                        <span className="text-[11px]">{dateParts.year}</span>
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -175,24 +179,18 @@ export function DeletedTransactionsView({ buckets, shares, profiles, onBack, onS
                             {truncateRemarks(t.remarks) || 'No Remarks'}
                           </div>
 
-                          {/* Added By */}
-                          {t.last_edited_by && (
-                            <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
-                              ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
+                          {/* Added by and when, on one line */}
+                          {(t.last_edited_by || formattedAddedDate) && (
+                            <div className="text-[10px] font-black text-zinc-500 break-all">
+                              {t.last_edited_by && formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
+                              {t.last_edited_by && formattedAddedDate ? ` (${formattedAddedDate})` : formattedAddedDate}
                             </div>
                           )}
 
-                          {/* Added On */}
-                          {formattedAddedDate && (
-                            <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
-                              ADDED ON:- {formattedAddedDate}
-                            </div>
-                          )}
-
-                          {/* Updated On */}
+                          {/* Edited */}
                           {formattedUpdatedDate && (
                             <div className="text-[10px] font-black uppercase text-blue-500 break-all">
-                              UPDATED ON:- {formattedUpdatedDate}
+                              EDITED:- {formattedUpdatedDate}
                             </div>
                           )}
 

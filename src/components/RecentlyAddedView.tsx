@@ -10,11 +10,12 @@ interface RecentlyAddedViewProps {
   buckets: Bucket[];
   shares: BucketShare[];
   profiles: Record<string, string>;
+  user: any;
   onBack: () => void;
   onViewTransaction: (transaction: Transaction) => void;
 }
 
-export function RecentlyAddedView({ transactions, buckets, shares, profiles, onBack, onViewTransaction }: RecentlyAddedViewProps) {
+export function RecentlyAddedView({ transactions, buckets, shares, profiles, user, onBack, onViewTransaction }: RecentlyAddedViewProps) {
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
@@ -136,13 +137,16 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
             <p className="text-xs font-bold uppercase text-zinc-400">No transactions found</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {localTransactions.map((t) => {
               const bucket = buckets.find(b => b.id === t.bucket_id);
               const dateParts = getDateParts(t.date);
               const bucketShares = shares.filter(s => s.bucket_id === t.bucket_id && s.status === 'accepted');
               const activeEmails = bucketShares.map(s => s.shared_with_email);
-              const ownerEmail = bucketShares[0]?.shared_by_email || '';
+              // A bucket nobody else uses has no share rows to name its
+              // owner, so fall back to the signed-in user when it's theirs
+              // (same as Search) - otherwise the owner shows as "(Removed)".
+              const ownerEmail = bucketShares[0]?.shared_by_email || (bucket?.user_id === user.id ? user.email : '');
 
               let formattedAddedDate = '';
               if (t.created_at) {
@@ -175,12 +179,12 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                 >
                   <div className="flex items-start gap-2 flex-1 min-w-0">
                     <div className={cn(
-                      "w-14 h-[72px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.1] text-zinc-900",
+                      "w-14 h-[58px] rounded-2xl flex-shrink-0 flex flex-col items-center justify-center font-black leading-[1.05] text-zinc-900",
                       t.type === 'Credit' ? "bg-green-100" : "bg-red-100"
                     )}>
-                      <span className="text-base">{dateParts.day}</span>
-                      <span className="text-xs uppercase">{dateParts.month}</span>
-                      <span className="text-xs">{dateParts.year}</span>
+                      <span className="text-[15px]">{dateParts.day}</span>
+                      <span className="text-[11px] uppercase">{dateParts.month}</span>
+                      <span className="text-[11px]">{dateParts.year}</span>
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -201,21 +205,16 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, onB
                           {truncateRemarks(t.remarks) || 'No Remarks'}
                         </div>
 
-                        {t.last_edited_by && (
-                          <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
-                            ADDED BY:- {formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
-                          </div>
-                        )}
-
-                        {formattedAddedDate && (
-                          <div className="text-[10px] font-black uppercase text-zinc-500 break-all">
-                            ADDED ON:- {formattedAddedDate}
+                        {(t.last_edited_by || formattedAddedDate) && (
+                          <div className="text-[10px] font-black text-zinc-500 break-all">
+                            {t.last_edited_by && formatUserDisplay(t.last_edited_by, ownerEmail, activeEmails, profiles)}
+                            {t.last_edited_by && formattedAddedDate ? ` (${formattedAddedDate})` : formattedAddedDate}
                           </div>
                         )}
 
                         {formattedUpdatedDate && (
                           <div className="text-[10px] font-black uppercase text-blue-500 break-all">
-                            UPDATED ON:- {formattedUpdatedDate}
+                            EDITED:- {formattedUpdatedDate}
                           </div>
                         )}
                       </div>
