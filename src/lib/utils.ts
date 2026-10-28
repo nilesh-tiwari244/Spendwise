@@ -86,6 +86,21 @@ function editDistance(a: string, b: string): number {
   return row[b.length];
 }
 
+// Categories whose name contains what's typed: names starting with it first,
+// then the rest, each group keeping the order it was given in.
+export function filterCategoriesByTyped<T extends { name: string }>(categories: T[], typed: string): T[] {
+  const query = typed.trim().toLowerCase();
+  if (!query) return categories;
+  const starting: T[] = [];
+  const containing: T[] = [];
+  for (const c of categories) {
+    const name = c.name.trim().toLowerCase();
+    if (name.startsWith(query)) starting.push(c);
+    else if (name.includes(query)) containing.push(c);
+  }
+  return [...starting, ...containing];
+}
+
 export function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',

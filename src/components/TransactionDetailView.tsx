@@ -10,11 +10,12 @@ interface TransactionDetailViewProps {
   shares: BucketShare[];
   profiles: Record<string, string>;
   ownerEmail: string;
+  canEdit: boolean;
   onBack: () => void;
   onEdit: () => void;
 }
 
-export function TransactionDetailView({ transaction, shares, profiles, ownerEmail, onBack, onEdit }: TransactionDetailViewProps) {
+export function TransactionDetailView({ transaction, shares, profiles, ownerEmail, canEdit, onBack, onEdit }: TransactionDetailViewProps) {
   const [historyLogs, setHistoryLogs] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
@@ -70,13 +71,15 @@ export function TransactionDetailView({ transaction, shares, profiles, ownerEmai
           </button>
           <h2 className="text-xl font-black uppercase tracking-tight">Transaction Details</h2>
         </div>
-        <button 
-          onClick={onEdit}
-          className="p-2 brutal-card bg-zinc-900 text-white flex items-center gap-2 hover:bg-zinc-800"
-        >
-          <FileText className="w-4 h-4" />
-          <span className="text-[10px] font-black uppercase">Edit</span>
-        </button>
+        {canEdit && (
+          <button
+            onClick={onEdit}
+            className="p-2 brutal-card bg-zinc-900 text-white flex items-center gap-2 hover:bg-zinc-800"
+          >
+            <FileText className="w-4 h-4" />
+            <span className="text-[10px] font-black uppercase">Edit</span>
+          </button>
+        )}
       </div>
 
       {/* MAIN CURRENT TRANSACTION CARD */}

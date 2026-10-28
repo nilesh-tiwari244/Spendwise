@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { supabase, type Category, type Transaction, type Bucket } from '../lib/supabase';
-import { ArrowLeft, Loader2, Camera, X, ChevronDown, Search } from 'lucide-react';
-import { cn, todayForDateInput } from '../lib/utils';
+import { ArrowLeft, Loader2, Camera, X, ChevronDown, Search, Menu } from 'lucide-react';
+import { cn, todayForDateInput, filterCategoriesByTyped } from '../lib/utils';
 import { ConfirmationModal } from './ConfirmationModal';
 import { logActivity } from '../lib/activity';
 import { compressImage } from '../lib/imageCompression';
@@ -17,23 +17,86 @@ interface AddTransactionViewProps {
   onOptimisticAddConfirm?: (tempId: string, realTx: Transaction) => void;
   onOptimisticEdit?: (tx: Partial<Transaction>) => void;
   onOptimisticDelete?: (id: string) => void;
+  onOpenMenu?: () => void;
 }
 
-export function AddTransactionView({ categories, selectedBucket, editingTransaction, onBack, onSuccess, onOptimisticAdd, onOptimisticAddConfirm, onOptimisticEdit, onOptimisticDelete }: AddTransactionViewProps) {
+// Fades out the chip row's right edge while more chips are hidden past it.
+const CHIP_ROW_FADE = 'linear-gradient(to right, #000 calc(100% - 40px), transparent)';
+
+export function AddTransactionView({ categories, selectedBucket, editingTransaction, onBack, onSuccess, onOptimisticAdd, onOptimisticAddConfirm, onOptimisticEdit, onOptimisticDelete, onOpenMenu }: AddTransactionViewProps) {
   const [type, setType] = useState<'Credit' | 'Debit'>(editingTransaction?.type || 'Debit');
   const [amount, setAmount] = useState(editingTransaction?.amount.toString() || '');
   const [date, setDate] = useState(editingTransaction ? new Date(editingTransaction.date).toISOString().split('T')[0] : todayForDateInput());
   const [categoryId, setCategoryId] = useState(editingTransaction?.category_id || '');
   const [categorySearch, setCategorySearch] = useState(categories.find(c => c.id === editingTransaction?.category_id)?.name || '');
+  // What the chips and the list are filtered by: only what's been typed, so a
+  // name filled in by picking a category still shows every chip.
+  const [chipFilter, setChipFilter] = useState('');
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
+  const chipRowRef = useRef<HTMLDivElement>(null);
+  const selectedChipRef = useRef<HTMLButtonElement>(null);
+  const [chipsHiddenRight, setChipsHiddenRight] = useState(false);
 
-  const filteredCategories = useMemo(() => {
-    if (!categorySearch.trim()) return categories;
-    return categories.filter(c => 
-      c.name.toLowerCase().includes(categorySearch.toLowerCase())
-    );
-  }, [categories, categorySearch]);
+  // A to Z, worked out from what's already loaded, so the chips are in their
+  // final order from the first frame and never reshuffle.
+  const sortedCategories = useMemo(
+    () => [...categories].sort((a, b) => a.name.localeCompare(b.name)),
+    [categories]
+  );
+  const visibleCategories = useMemo(
+    () => filterCategoriesByTyped(sortedCategories, chipFilter),
+    [sortedCategories, chipFilter]
+  );
+  // Changes only when the chips do - the categories prop is a new array on
+  // every App render, which would otherwise keep resetting the row's scroll.
+  const visibleChipKey = visibleCategories.map(c => c.id).join(',');
+
+  const updateChipFade = useCallback(() => {
+    const row = chipRowRef.current;
+    setChipsHiddenRight(!!row && row.scrollLeft + row.clientWidth < row.scrollWidth - 1);
+  }, []);
+
+  // Keep the picked chip in view (say, editing a transaction whose category is
+  // far along the row); with nothing picked, show the row from its start.
+  useLayoutEffect(() => {
+    const row = chipRowRef.current;
+    const chip = selectedChipRef.current;
+    if (row && !chip) {
+      row.scrollLeft = 0;
+    } else if (row && chip && (chip.offsetLeft < row.scrollLeft || chip.offsetLeft + chip.offsetWidth > row.scrollLeft + row.clientWidth)) {
+      row.scrollLeft = chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2;
+    }
+    updateChipFade();
+  }, [visibleChipKey, categoryId, updateChipFade]);
+
+  useEffect(() => {
+    window.addEventListener('resize', updateChipFade);
+    return () => window.removeEventListener('resize', updateChipFade);
+  }, [updateChipFade]);
+
+  const handleCategoryTyping = (value: string) => {
+    setCategorySearch(value);
+    setChipFilter(value);
+    // Typing only picks a category when it's exactly one category's name;
+    // otherwise the transaction is saved without one.
+    const typed = value.trim().toLowerCase();
+    const exact = typed ? categories.filter(c => c.name.trim().toLowerCase() === typed) : [];
+    setCategoryId(exact.length === 1 ? exact[0].id : '');
+  };
+
+  const pickCategory = (category: Category) => {
+    setCategoryId(category.id);
+    setCategorySearch(category.name);
+    setChipFilter('');
+    setIsCategoryDropdownOpen(false);
+  };
+
+  const clearCategory = () => {
+    setCategoryId('');
+    setCategorySearch('');
+    setChipFilter('');
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -105,6 +168,8 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
     setDate(todayForDateInput());
     setCategoryId('');
     setCategorySearch('');
+    setChipFilter('');
+    setIsCategoryDropdownOpen(false);
     setRemarks('');
     setFile(null);
     setPreview(null);
@@ -228,7 +293,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
   };
 
   return (
-    <div className="space-y-8">
+    <div>
       <ConfirmationModal
         isOpen={showDeleteConfirm}
         title="Delete Transaction?"
@@ -239,27 +304,49 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
         }}
         onCancel={() => setShowDeleteConfirm(false)}
       />
-      <div className="flex items-center gap-4">
-        <button onClick={onBack} className="p-3 rounded-2xl bg-white shadow-md hover:shadow-lg transition-shadow">
-          <ArrowLeft className="w-5 h-5" />
+      {/* Top row like the bucket screen's - App hides its sticky header here,
+          so the menu lives in this row and back takes the right corner. */}
+      <div className="flex items-center gap-1 min-h-14 -mx-2">
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          aria-label="Open menu"
+          className="w-11 h-11 flex-none flex items-center justify-center rounded-full hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
+        >
+          <Menu className="w-[22px] h-[22px]" />
         </button>
-        <h2 className="text-2xl font-black uppercase tracking-tighter">Add Transaction</h2>
+        <div className="flex-1 min-w-0 text-center">
+          <h2 className="text-[17px] leading-[22px] font-extrabold uppercase tracking-tight">
+            {editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
+          </h2>
+          {selectedBucket && (
+            <p className="text-xs font-semibold text-zinc-500 [overflow-wrap:anywhere]">{selectedBucket.name}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back"
+          className="w-11 h-11 flex-none flex items-center justify-center rounded-full hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
+        >
+          <ArrowLeft className="w-[22px] h-[22px]" />
+        </button>
       </div>
 
       {!selectedBucket && !editingTransaction ? (
-        <div className="text-center py-12 rounded-2xl bg-white shadow-md">
+        <div className="mt-2 text-center py-12 rounded-2xl bg-white shadow-md">
           <p className="text-xs font-bold uppercase text-zinc-400">Please select a bucket first</p>
           <button onClick={onBack} className="mt-4 text-[10px] font-black uppercase underline">Go Back</button>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="mt-2 space-y-3">
           {/* Type Toggle */}
           <div className="flex rounded-full bg-zinc-100 p-1">
             <button
               type="button"
               onClick={() => setType('Debit')}
               className={cn(
-                "flex-1 py-3 rounded-full font-black uppercase text-sm transition-all",
+                "flex-1 py-2 rounded-full font-black uppercase text-sm transition-all",
                 type === 'Debit' ? "bg-red-100 text-red-600 shadow-sm" : "text-zinc-400"
               )}
             >
@@ -269,7 +356,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
               type="button"
               onClick={() => setType('Credit')}
               className={cn(
-                "flex-1 py-3 rounded-full font-black uppercase text-sm transition-all",
+                "flex-1 py-2 rounded-full font-black uppercase text-sm transition-all",
                 type === 'Credit' ? "bg-green-100 text-green-600 shadow-sm" : "text-zinc-400"
               )}
             >
@@ -277,9 +364,9 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Amount</label>
+              <label className="block text-xs font-black uppercase mb-1 text-zinc-500">Amount</label>
               <input
                 type="number"
                 step="0.01"
@@ -287,24 +374,24 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                 required
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full rounded-2xl bg-white shadow-sm px-4 py-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
+                className="w-full h-[52px] rounded-2xl bg-white shadow-sm px-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
                 placeholder="0.00"
               />
             </div>
             <div>
-              <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Date</label>
+              <label className="block text-xs font-black uppercase mb-1 text-zinc-500">Date</label>
               <input
                 type="date"
                 required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-2xl bg-white shadow-sm px-4 py-4 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
+                className="w-full h-[52px] rounded-2xl bg-white shadow-sm px-4 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
               />
             </div>
           </div>
 
           <div className="relative" ref={categoryDropdownRef}>
-            <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Category</label>
+            <label className="block text-xs font-black uppercase mb-1 text-zinc-500">Category</label>
             <div className="relative group">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-900 transition-colors">
                 <Search className="w-4 h-4" />
@@ -312,20 +399,30 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
               <input
                 type="text"
                 value={categorySearch}
-                onChange={(e) => {
-                  setCategorySearch(e.target.value);
-                  setIsCategoryDropdownOpen(true);
-                  // If user clears the field, clear the categoryId too
-                  if (!e.target.value) setCategoryId('');
-                }}
-                onFocus={() => setIsCategoryDropdownOpen(true)}
-                placeholder="Search or select category..."
-                className="w-full rounded-2xl bg-white shadow-sm pl-11 pr-11 py-4 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
+                onChange={(e) => handleCategoryTyping(e.target.value)}
+                placeholder="Type to filter, or tap below"
+                className={cn(
+                  "w-full h-12 rounded-2xl bg-white shadow-sm pl-11 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow",
+                  categorySearch ? "pr-20" : "pr-11"
+                )}
               />
+              {categorySearch && (
+                <button
+                  type="button"
+                  onClick={clearCategory}
+                  aria-label="Clear category"
+                  className="absolute right-11 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full bg-zinc-100 text-zinc-500 hover:text-zinc-900 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {/* The full list opens only from this button; typing filters
+                  the chips below instead. */}
               <button
                 type="button"
                 onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-900 transition-colors"
+                aria-label="Show category list"
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-zinc-400 hover:text-zinc-900 transition-colors"
               >
                 <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isCategoryDropdownOpen && "rotate-180")} />
               </button>
@@ -339,21 +436,17 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                   exit={{ opacity: 0, y: -10 }}
                   className="absolute z-50 left-0 right-0 mt-2 bg-white rounded-2xl shadow-lg max-h-60 overflow-y-auto overflow-hidden"
                 >
-                  {filteredCategories.length === 0 ? (
+                  {visibleCategories.length === 0 ? (
                     <div className="p-4 text-center text-xs font-bold text-zinc-400 uppercase">
-                      No matching categories
+                      No match
                     </div>
                   ) : (
                     <div className="divide-y divide-zinc-100">
-                      {filteredCategories.map((c) => (
+                      {visibleCategories.map((c) => (
                         <button
                           key={c.id}
                           type="button"
-                          onClick={() => {
-                            setCategoryId(c.id);
-                            setCategorySearch(c.name);
-                            setIsCategoryDropdownOpen(false);
-                          }}
+                          onClick={() => pickCategory(c)}
                           className={cn(
                             "w-full text-left px-4 py-3 text-sm font-bold hover:bg-zinc-50 transition-colors uppercase tracking-tight",
                             categoryId === c.id && "bg-zinc-100"
@@ -367,14 +460,44 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* One row of chips that scrolls sideways, A to Z; typing in the
+                box above filters it. */}
+            {visibleCategories.length === 0 ? (
+              <p className="mt-2 h-9 flex items-center px-1 text-[13px] font-bold text-zinc-400">
+                {categories.length === 0 ? 'No categories yet' : 'No match'}
+              </p>
+            ) : (
+              <div
+                ref={chipRowRef}
+                onScroll={updateChipFade}
+                className="relative mt-2 flex gap-1.5 overflow-x-auto py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                style={chipsHiddenRight ? { WebkitMaskImage: CHIP_ROW_FADE, maskImage: CHIP_ROW_FADE } : undefined}
+              >
+                {visibleCategories.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    ref={c.id === categoryId ? selectedChipRef : undefined}
+                    onClick={() => pickCategory(c)}
+                    className={cn(
+                      "flex-none h-8 px-3 rounded-full text-xs font-extrabold whitespace-nowrap transition-colors touch-manipulation",
+                      c.id === categoryId ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 shadow-sm"
+                    )}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-black uppercase mb-1.5 text-zinc-500">Remarks</label>
+            <label className="block text-xs font-black uppercase mb-1 text-zinc-500">Remarks</label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              className="w-full rounded-2xl bg-white shadow-sm px-4 py-4 h-24 resize-none text-base font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
+              className="block w-full rounded-2xl bg-white shadow-sm px-4 py-3 h-[72px] resize-none text-base font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-shadow"
               placeholder="What was this for?"
             />
           </div>
@@ -384,12 +507,12 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
             <label className="text-xs font-black uppercase text-zinc-500">Receipt Image</label>
             <div className="relative">
               {isCompressingFile ? (
-                <div className="flex items-center gap-2 px-4 h-11 rounded-full bg-white shadow-sm">
+                <div className="flex items-center gap-2 px-4 h-10 rounded-full bg-white shadow-sm">
                   <Loader2 className="w-4 h-4 text-zinc-900 animate-spin" />
                   <span className="text-[10px] font-black uppercase text-zinc-900">Compressing...</span>
                 </div>
               ) : preview ? (
-                <div className="relative w-32 h-11 rounded-2xl overflow-hidden shadow-sm">
+                <div className="relative w-32 h-10 rounded-2xl overflow-hidden shadow-sm">
                   <img src={preview} alt="Receipt preview" className="w-full h-full object-cover" />
                   <button
                     type="button"
@@ -400,7 +523,7 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                   </button>
                 </div>
               ) : (
-                <label className="flex items-center gap-2 px-4 h-11 rounded-full bg-white shadow-sm cursor-pointer hover:shadow-md transition-shadow">
+                <label className="flex items-center gap-2 px-4 h-10 rounded-full bg-white shadow-sm cursor-pointer hover:shadow-md transition-shadow">
                   <Camera className="w-4 h-4 text-zinc-900" />
                   <span className="text-[10px] font-black uppercase text-zinc-900">Upload</span>
                   <input
@@ -418,11 +541,11 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
             <p className="text-red-600 text-xs font-bold uppercase">{error}</p>
           )}
 
-          <div className="flex flex-col gap-3 pt-2">
+          <div className="pt-1">
             <button
               type="submit"
               disabled={loading || deleting}
-              className="w-full rounded-full bg-zinc-900 text-white py-4 font-bold text-base shadow-md hover:shadow-lg hover:bg-zinc-800 active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full h-[52px] rounded-full bg-zinc-900 text-white font-bold text-base shadow-md hover:shadow-lg hover:bg-zinc-800 active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {(loading || deleting) && <Loader2 className="w-4 h-4 animate-spin" />}
               {editingTransaction ? 'Update Transaction' : 'Save Transaction'}
@@ -431,11 +554,11 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
             {/* Clear and Delete are pushed well below the primary action so a
                 second tap right after Update/Save doesn't accidentally land
                 on them - Delete especially. */}
-            <div className="flex flex-col gap-3 mt-8">
+            <div className="mt-12 flex gap-3">
               <button
                 type="button"
                 onClick={handleClear}
-                className="w-full rounded-full bg-white text-zinc-900 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all"
+                className="flex-1 h-11 rounded-full bg-white text-zinc-900 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all"
               >
                 Clear
               </button>
@@ -445,9 +568,9 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={loading || deleting}
-                  className="w-full rounded-full bg-red-100 text-red-600 py-4 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all disabled:opacity-50"
+                  className="flex-1 h-11 rounded-full bg-red-100 text-red-600 font-bold text-base shadow-sm hover:shadow-md active:scale-[0.99] transition-all disabled:opacity-50"
                 >
-                  Delete Transaction
+                  Delete
                 </button>
               )}
             </div>

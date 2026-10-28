@@ -61,9 +61,11 @@ function BucketRouteWrapper({ buckets, children }: { buckets: Bucket[], children
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
-  // The bucket screen draws its own top section (menu, name, balance) that
-  // scrolls away with the list, so the shared sticky header is hidden there.
+  // The bucket screen and the add/edit-transaction screen draw their own top
+  // row (menu, title, one action), so the shared sticky header is hidden there.
   const isBucketDashboard = useMatch('/bucket/:bucketId/dashboard') !== null;
+  const isAddTransaction = useMatch('/bucket/:bucketId/add-transaction') !== null;
+  const hidesAppHeader = isBucketDashboard || isAddTransaction;
 
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -722,6 +724,13 @@ const splitTimestamp = (ts: string | null | undefined) => {
     return '';
   }, [shares, session]);
 
+  // Owners and members with edit access can change a bucket's transactions;
+  // view-only members can't.
+  const canEditBucket = useCallback((bucket: Bucket) =>
+    bucket.user_id === session?.user?.id ||
+    shares.find(s => s.bucket_id === bucket.id && s.shared_with_email === session?.user?.email)?.access_level === 'edit'
+  , [shares, session]);
+
   const handleRefresh = useCallback(async () => {
     await fetchData(false);
   }, [fetchData]);
@@ -806,7 +815,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
         isExporting={isExporting}
       />
 
-      <header className={cn("sticky top-0 z-30 bg-white shadow-sm px-4 py-4", isBucketDashboard && "hidden")}>
+      <header className={cn("sticky top-0 z-30 bg-white shadow-sm px-4 py-4", hidesAppHeader && "hidden")}>
         <div className="max-w-md mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <button
@@ -851,7 +860,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
         </div>
       </header>
 
-      <main className={cn("max-w-md mx-auto p-4", isBucketDashboard && "pt-2")}>
+      <main className={cn("max-w-md mx-auto p-4", hidesAppHeader && "pt-2")}>
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname.split('/')[1] || '/'}>
             
@@ -885,7 +894,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     bucket={bucket}
                     shares={shares}
                     ownerEmail={getOwnerEmail(bucket)}
-                    canEdit={bucket.user_id === session.user.id || shares.find(s => s.bucket_id === bucket.id && s.shared_with_email === session.user.email)?.access_level === 'edit'}
+                    canEdit={canEditBucket(bucket)}
                     profiles={profiles}
                     isLoading={isDataLoading}
                     totalBalance={bucketTotals[bucket.id] || 0}
@@ -949,6 +958,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     onOptimisticAddConfirm={confirmOptimisticAdd}
                     onOptimisticEdit={optimisticEditTransaction}
                     onOptimisticDelete={optimisticDeleteTransaction}
+                    onOpenMenu={() => setIsSidebarOpen(true)}
                   />
                 )}
               </BucketRouteWrapper>
@@ -976,6 +986,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     shares={shares}
                     profiles={profiles}
                     ownerEmail={getOwnerEmail(bucket)}
+                    canEdit={canEditBucket(bucket)}
                     onBack={() => {
                       setSelectedTransaction(null);
                       navigate(-1);
