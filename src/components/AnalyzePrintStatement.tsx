@@ -12,6 +12,9 @@ interface AnalyzePrintStatementProps {
   // its own header line, left out entirely otherwise rather than folded into
   // `subject` (which would read awkwardly blank for the 0/many-selected case).
   categoryLabel: string;
+  // "Debits only" / "Credits only" when the search was limited to one type,
+  // added to the heading; empty otherwise.
+  typeLabel: string;
   dateRangeLabel: string;
   transactions: Transaction[];
   openingBalance: number;
@@ -41,7 +44,7 @@ function drCrLabel(balance: number, subject: string): { suffix: string; phrase: 
 }
 
 export function AnalyzePrintStatement({
-  title, subject, categoryLabel, dateRangeLabel, transactions, openingBalance, hasOpeningBalance, showRunningBalance
+  title, subject, categoryLabel, typeLabel, dateRangeLabel, transactions, openingBalance, hasOpeningBalance, showRunningBalance
 }: AnalyzePrintStatementProps) {
   const { monthGroups, totalDebit, totalCredit, finalBalance } = useMemo(() => {
     const chronological = [...transactions].sort((a, b) => {
@@ -84,7 +87,7 @@ export function AnalyzePrintStatement({
   return (
     <div className="hidden print:block text-black p-6">
       <div className="text-center mb-6">
-        <h1 className="text-xl font-bold">{title} Statement</h1>
+        <h1 className="text-xl font-bold">{title} Statement{typeLabel && ` (${typeLabel})`}</h1>
         {categoryLabel && <p className="text-sm font-semibold text-gray-800 mt-1">{categoryLabel}</p>}
         <p className="text-sm text-gray-600 mt-1">{dateRangeLabel}</p>
       </div>

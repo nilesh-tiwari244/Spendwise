@@ -61,11 +61,12 @@ function BucketRouteWrapper({ buckets, children }: { buckets: Bucket[], children
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
-  // The bucket screen and the add/edit-transaction screen draw their own top
+  // The bucket, add/edit-transaction and search screens draw their own top
   // row (menu, title, one action), so the shared sticky header is hidden there.
   const isBucketDashboard = useMatch('/bucket/:bucketId/dashboard') !== null;
   const isAddTransaction = useMatch('/bucket/:bucketId/add-transaction') !== null;
-  const hidesAppHeader = isBucketDashboard || isAddTransaction;
+  const isSearch = useMatch('/analyze') !== null;
+  const hidesAppHeader = isBucketDashboard || isAddTransaction || isSearch;
 
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -1033,6 +1034,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                   setSelectedTransaction(t);
                   navigate(`/bucket/${t.bucket_id}/view-transaction`);
                 }}
+                onOpenMenu={() => setIsSidebarOpen(true)}
               />
             } />
 

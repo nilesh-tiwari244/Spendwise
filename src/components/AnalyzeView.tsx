@@ -4,7 +4,7 @@ import { supabase, type Transaction, type Category, type Bucket, type BucketShar
 import { notifyError } from '../lib/toast';
 import { formatCurrency, cn, truncateRemarks, getDateParts, formatUserDisplay, wasUpdatedAfterAdding, UNCATEGORIZED_ID, UNCATEGORIZED_LABEL } from '../lib/utils';
 import { fetchAllRows } from '../lib/fetchAll';
-import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Check } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, Tag, X, TrendingUp, TrendingDown, Wallet, Printer, AlertCircle, ChevronDown, Loader2, Check, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AnalyzePrintStatement } from './AnalyzePrintStatement';
 
@@ -16,6 +16,7 @@ export type AnalyzeSnapshot = {
   endDate: string;
   minAmount: string;
   maxAmount: string;
+  typeFilter: 'Debit' | 'Credit' | null;
   selectedBucketIds: string[];
   isAnalyzed: boolean;
   analyzedTransactions: Transaction[];
@@ -42,6 +43,7 @@ interface AnalyzeViewProps {
   onPersistedStateChange: (snapshot: AnalyzeSnapshot) => void;
   onBack: () => void;
   onViewTransaction: (transaction: Transaction) => void;
+  onOpenMenu?: () => void;
 }
 
 // Helper to determine if text should be light or dark based on background color
@@ -55,23 +57,27 @@ function getContrastColor(hexColor: string | undefined): string {
   return brightness > 128 ? 'text-zinc-900' : 'text-white';
 }
 
-// What the keyword box searches. Each word has to turn up somewhere in a
-// transaction - its remarks, its category's name or, for a number, its amount -
-// in any order, so "coffee tan" finds "tan coffee" and "dining tan" finds
-// Dining transactions that mention tan. Returns one PostgREST or-filter per
-// word; applied together, every word must match.
-function keywordFilters(keyword: string, categories: { id: string; name: string }[]): string[] {
-  return keyword.trim().split(/\s+/).filter(Boolean).map(word => {
+// What the keyword box searches. A transaction matches when any one of the
+// typed words turns up in its remarks, in its category's name or - for a
+// number - as its amount, so "varun barun" finds transactions mentioning
+// either name. Returns a PostgREST or-filter, or null when nothing was typed.
+function keywordFilter(keyword: string, categories: { id: string; name: string }[]): string | null {
+  const words = Array.from(new Set(keyword.trim().toLowerCase().split(/\s+/).filter(Boolean)));
+  if (words.length === 0) return null;
+  const conditions: string[] = [];
+  const categoryIds = new Set<string>();
+  for (const word of words) {
     // % and _ match themselves here instead of acting as wildcards.
     const pattern = `%${word.replace(/[\\%_]/g, ch => `\\${ch}`)}%`;
-    const conditions = [`remarks.ilike.${quoteFilterValue(pattern)}`];
-    const lower = word.toLowerCase();
-    const categoryIds = categories.filter(c => c.name.toLowerCase().includes(lower)).map(c => c.id);
-    if (categoryIds.length > 0) conditions.push(`category_id.in.(${categoryIds.join(',')})`);
+    conditions.push(`remarks.ilike.${quoteFilterValue(pattern)}`);
+    for (const c of categories) {
+      if (c.name.toLowerCase().includes(word)) categoryIds.add(c.id);
+    }
     const amount = word.replace(/[,₹]/g, '');
     if (/^\d+(\.\d+)?$/.test(amount)) conditions.push(`amount.eq.${quoteFilterValue(amount)}`);
-    return conditions.join(',');
-  });
+  }
+  if (categoryIds.size > 0) conditions.push(`category_id.in.(${Array.from(categoryIds).join(',')})`);
+  return conditions.join(',');
 }
 
 // Filter values inside or=(...) are double-quoted, so commas, dots and
@@ -80,7 +86,7 @@ function quoteFilterValue(value: string): string {
   return `"${value.replace(/["\\]/g, ch => `\\${ch}`)}"`;
 }
 
-export function AnalyzeView({ categories, buckets, shares, profiles, selectedBucket, user, initialParams, persistedState, onPersistedStateChange, onBack, onViewTransaction }: AnalyzeViewProps) {
+export function AnalyzeView({ categories, buckets, shares, profiles, selectedBucket, user, initialParams, persistedState, onPersistedStateChange, onBack, onViewTransaction, onOpenMenu }: AnalyzeViewProps) {
   // Input States (Draft Filters) — seeded from persistedState when we're
   // remounting after a round-trip (e.g. viewing a transaction and going
   // back), otherwise from initialParams for a fresh drill-down.
@@ -98,6 +104,8 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   const [endDate, setEndDate] = useState(persistedState?.endDate ?? initialParams?.endDate ?? '');
   const [minAmount, setMinAmount] = useState(persistedState?.minAmount ?? '');
   const [maxAmount, setMaxAmount] = useState(persistedState?.maxAmount ?? '');
+  // Debit or Credit only; null shows both.
+  const [typeFilter, setTypeFilter] = useState<'Debit' | 'Credit' | null>(persistedState?.typeFilter ?? null);
   const [selectedBucketIds, setSelectedBucketIds] = useState<string[]>(
     persistedState?.selectedBucketIds ?? (
       selectedBucket
@@ -111,9 +119,9 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   const [isAnalyzed, setIsAnalyzed] = useState(persistedState?.isAnalyzed ?? false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzedTransactions, setAnalyzedTransactions] = useState<Transaction[]>(persistedState?.analyzedTransactions ?? []);
-  // Sum of everything before the filtered start date (same bucket/category
-  // scope), so a date-ranged print statement doesn't silently drop prior
-  // history - only meaningful when a start date is actually applied.
+  // Sum of everything before the filtered start date (same bucket, category
+  // and Debit/Credit scope), so a date-ranged print statement doesn't silently
+  // drop prior history - only meaningful when a start date is actually applied.
   const [openingBalance, setOpeningBalance] = useState(persistedState?.openingBalance ?? 0);
   // Which read-only breakdown (if any) is showing above the results list -
   // mutually exclusive, not persisted across unmount/remount since it's
@@ -125,10 +133,10 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
   useEffect(() => {
     onPersistedStateChange({
       keyword, categoryIds, categorySearch, startDate, endDate,
-      minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance
+      minAmount, maxAmount, typeFilter, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyword, categoryIds, categorySearch, startDate, endDate, minAmount, maxAmount, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance]);
+  }, [keyword, categoryIds, categorySearch, startDate, endDate, minAmount, maxAmount, typeFilter, selectedBucketIds, isAnalyzed, analyzedTransactions, openingBalance]);
 
   const uniqueCategories = useMemo(() => {
     if (selectedBucket) return categories.filter(c => c.bucket_id === selectedBucket.id);
@@ -206,8 +214,8 @@ const runAnalysis = async () => {
     };
 
     // Keyword words match category names only within the buckets being
-    // searched, which keeps each word's id list short.
-    const keywordConditions = keywordFilters(
+    // searched, which keeps the id list short.
+    const keywordCondition = keywordFilter(
       keyword,
       categories.filter(c => c.bucket_id && resolvedBucketIds.includes(c.bucket_id))
     );
@@ -224,7 +232,8 @@ const runAnalysis = async () => {
       if (endDate) query = query.lte('date', endDate + 'T23:59:59');
       if (minAmount) query = query.gte('amount', minAmount);
       if (maxAmount) query = query.lte('amount', maxAmount);
-      for (const condition of keywordConditions) query = query.or(condition);
+      if (typeFilter) query = query.eq('type', typeFilter);
+      if (keywordCondition) query = query.or(keywordCondition);
 
       return query
         .order('date', { ascending: false })
@@ -238,9 +247,10 @@ const runAnalysis = async () => {
       setIsAnalyzed(true);
 
       // Opening balance: everything before the filtered start date, same
-      // bucket/category scope, so a date-ranged print statement doesn't
-      // silently drop prior history. Only meaningful when a start date is
-      // actually applied - "all time" has nothing to carry forward.
+      // bucket, category and Debit/Credit scope, so a date-ranged print
+      // statement doesn't silently drop prior history. Only meaningful when a
+      // start date is actually applied - "all time" has nothing to carry
+      // forward.
       if (startDate) {
         const buildOpeningQuery = () => {
           let q = supabase
@@ -249,6 +259,7 @@ const runAnalysis = async () => {
             .is('deleted_at', null)
             .in('bucket_id', resolvedBucketIds)
             .lt('date', startDate);
+          if (typeFilter) q = q.eq('type', typeFilter);
           return applyCategoryFilter(q);
         };
         const openingRows = await fetchAllRows<{ id?: string; type: 'Credit' | 'Debit'; amount: number }>(buildOpeningQuery);
@@ -321,6 +332,7 @@ const runAnalysis = async () => {
     setEndDate('');
     setMinAmount('');
     setMaxAmount('');
+    setTypeFilter(null);
     setSelectedBucketIds(selectedBucket ? [selectedBucket.id] : []);
     setIsAnalyzed(false);
     setAnalyzedTransactions([]);
@@ -393,17 +405,33 @@ const runAnalysis = async () => {
   }, [startDate, endDate]);
 
   return (
-    <div className="space-y-6 pb-32">
-      <div className="flex items-center gap-4 print:hidden">
-        <button onClick={onBack} className="p-2 brutal-card bg-white">
-          <ArrowLeft className="w-5 h-5" />
+    <div className="pb-32">
+      {/* Top row like the bucket and add/edit screens' - App hides its sticky
+          header here, so the menu lives in this row and back takes the right
+          corner. */}
+      <div className="flex items-center gap-1 min-h-14 -mx-2 print:hidden">
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          aria-label="Open menu"
+          className="w-11 h-11 flex-none flex items-center justify-center rounded-full hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
+        >
+          <Menu className="w-[22px] h-[22px]" />
         </button>
-        <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3">
+        <h2 className="flex-1 min-w-0 text-center text-[17px] leading-[22px] font-extrabold uppercase tracking-tight">
           Search
         </h2>
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back"
+          className="w-11 h-11 flex-none flex items-center justify-center rounded-full hover:bg-zinc-200 active:bg-zinc-300 transition-colors touch-manipulation"
+        >
+          <ArrowLeft className="w-[22px] h-[22px]" />
+        </button>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm p-4 space-y-4 print:hidden">
+      <div className="mt-2 bg-white rounded-3xl shadow-sm p-4 space-y-4 print:hidden">
         {!selectedBucket && (
           <div>
             <label className="block text-[10px] font-black uppercase mb-2 text-zinc-400">Buckets</label>
@@ -561,26 +589,52 @@ const runAnalysis = async () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">Min Amount</label>
-            <input
-              type="number"
-              placeholder="0.00"
-              value={minAmount}
-              onChange={(e) => setMinAmount(e.target.value)}
-              className="brutal-input py-2 text-xs"
-            />
+        <div className="space-y-3">
+          {/* Debit or Credit only; tapping the picked one again shows both. */}
+          <div className="flex rounded-full bg-zinc-100 p-1">
+            <button
+              type="button"
+              onClick={() => setTypeFilter(typeFilter === 'Debit' ? null : 'Debit')}
+              className={cn(
+                "flex-1 py-1.5 rounded-full font-black uppercase text-xs transition-all",
+                typeFilter === 'Debit' ? "bg-red-100 text-red-600 shadow-sm" : "text-zinc-400"
+              )}
+            >
+              Debit
+            </button>
+            <button
+              type="button"
+              onClick={() => setTypeFilter(typeFilter === 'Credit' ? null : 'Credit')}
+              className={cn(
+                "flex-1 py-1.5 rounded-full font-black uppercase text-xs transition-all",
+                typeFilter === 'Credit' ? "bg-green-100 text-green-600 shadow-sm" : "text-zinc-400"
+              )}
+            >
+              Credit
+            </button>
           </div>
-          <div>
-            <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">Max Amount</label>
-            <input
-              type="number"
-              placeholder="0.00"
-              value={maxAmount}
-              onChange={(e) => setMaxAmount(e.target.value)}
-              className="brutal-input py-2 text-xs"
-            />
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">Min Amount</label>
+              <input
+                type="number"
+                placeholder="0.00"
+                value={minAmount}
+                onChange={(e) => setMinAmount(e.target.value)}
+                className="brutal-input py-2 text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-black uppercase mb-1 text-zinc-400">Max Amount</label>
+              <input
+                type="number"
+                placeholder="0.00"
+                value={maxAmount}
+                onChange={(e) => setMaxAmount(e.target.value)}
+                className="brutal-input py-2 text-xs"
+              />
+            </div>
           </div>
         </div>
 
@@ -607,7 +661,7 @@ const runAnalysis = async () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-6 print:hidden"
+          className="mt-6 space-y-6 print:hidden"
         >
           <div className="space-y-4">
             <div className="flex justify-between items-center pb-1">
@@ -849,6 +903,7 @@ const runAnalysis = async () => {
           title={printTitle}
           subject={printSubject}
           categoryLabel={printCategoryLabel}
+          typeLabel={typeFilter === 'Debit' ? 'Debits only' : typeFilter === 'Credit' ? 'Credits only' : ''}
           dateRangeLabel={printDateRangeLabel}
           transactions={analyzedTransactions}
           openingBalance={openingBalance}
