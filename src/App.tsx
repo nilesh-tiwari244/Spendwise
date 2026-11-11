@@ -84,6 +84,9 @@ export default function App() {
   const [isAppLoading, setIsAppLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [bucketTotals, setBucketTotals] = useState<Record<string, number>>({});
+  // Goes up each time fetchData brings in fresh data, so screens that fetch
+  // their own figures (Summary) know to refresh them too.
+  const [dataVersion, setDataVersion] = useState(0);
   const [orphanedCount, setOrphanedCount] = useState<number>(0);
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -404,6 +407,7 @@ export default function App() {
       if (catRes.data) setCategories(catRes.data);
       setOrphanedCount(orphanedRes.count || 0);
       setBucketTotals(totalsMap);
+      setDataVersion(v => v + 1);
 
       if (!txFetchFailed) {
         setTransactions(transactionsData.sort((a, b) => {
@@ -923,6 +927,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                   <MemoizedSummaryView 
                     bucket={bucket}
                     categories={categories.filter(c => c.bucket_id === bucket.id)}
+                    dataVersion={dataVersion}
                     onBack={() => navigate(-1)}
                     onCategoryClick={(categoryId, startDate, endDate) => {
                       setAnalyzeParams({ categoryId, bucketId: bucket.id, startDate, endDate, autoRun: true });

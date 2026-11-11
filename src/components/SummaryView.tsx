@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase, type Category, type Bucket } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
 import { ArrowLeft, Filter, ClipboardList, Loader2 } from 'lucide-react';
@@ -9,11 +9,15 @@ import { UNCATEGORIZED_ID, UNCATEGORIZED_LABEL } from '../lib/utils';
 interface SummaryViewProps {
   bucket: Bucket;
   categories: Category[];
+  // Goes up each time App reloads its data (someone else's change, coming
+  // back to the app). These totals are fetched separately from that data, so
+  // this is what tells them to refresh.
+  dataVersion: number;
   onBack: () => void;
   onCategoryClick?: (categoryId: string, startDate?: string, endDate?: string) => void;
 }
 
-export function SummaryView({ bucket, categories, onBack, onCategoryClick }: SummaryViewProps) {
+export function SummaryView({ bucket, categories, dataVersion, onBack, onCategoryClick }: SummaryViewProps) {
   const [isAllChecked, setIsAllChecked] = useState(true);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -23,6 +27,11 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
   const [categoryTotals, setCategoryTotals] = useState<Record<string, number>>({});
   const [uncategorizedTotal, setUncategorizedTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  // Each fetch takes a number, and only the newest may update the screen, so
+  // a slow earlier answer can't overwrite a later one.
+  const latestFetchRef = useRef(0);
+  // The bucket, dates and categories that the totals on screen are for.
+  const shownQueryRef = useRef<string | null>(null);
 
   // Transactions with no category are summed here rather than via the summary
   // RPC, which groups by category_id and so has no row to hang them on. Signed
@@ -45,9 +54,11 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
     return rows.reduce((sum, t) => sum + (t.type === 'Credit' ? Number(t.amount) : -Number(t.amount)), 0);
   };
 
-  // Fetch the summary directly from the database!
-  const fetchSummary = async (start: string | null, end: string | null) => {
-    setIsLoading(true);
+  // Fetch the summary directly from the database! `quiet` refreshes the
+  // totals in place rather than swapping them for the spinner.
+  const fetchSummary = async (start: string | null, end: string | null, quiet = false) => {
+    const fetchId = ++latestFetchRef.current;
+    if (!quiet) setIsLoading(true);
     try {
       const [{ data, error }, blankTotal] = await Promise.all([
         supabase.rpc('get_bucket_category_summary', {
@@ -59,6 +70,7 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
       ]);
 
       if (error) throw error;
+      if (fetchId !== latestFetchRef.current) return;
 
       const totalsMap: Record<string, number> = {};
 
@@ -81,16 +93,27 @@ export function SummaryView({ bucket, categories, onBack, onCategoryClick }: Sum
       setCategoryTotals(totalsMap);
       setUncategorizedTotal(blankTotal);
     } catch (err) {
+      if (fetchId !== latestFetchRef.current) return;
       notifyError('Could not load the summary. Check your connection and try again.', err);
     } finally {
-      setIsLoading(false);
+      if (fetchId === latestFetchRef.current) setIsLoading(false);
     }
   };
 
-  // Run the fetch whenever the applied filters change
+  // The category list arrives as a new array on every App render, so the
+  // fetch is keyed on which categories there are rather than on the array -
+  // otherwise any redraw anywhere in the app (a toast, the menu) refetched.
+  const categoryKey = categories.map(c => c.id).join(',');
+
+  // Fetch when the bucket, the applied dates or the set of categories change.
+  // When only dataVersion moved, the same totals are still on screen, so they
+  // are refreshed quietly.
   useEffect(() => {
-    fetchSummary(appliedStartDate, appliedEndDate);
-  }, [bucket.id, appliedStartDate, appliedEndDate, categories]);
+    const queryKey = [bucket.id, appliedStartDate, appliedEndDate, categoryKey].join('|');
+    const isRefresh = shownQueryRef.current === queryKey;
+    shownQueryRef.current = queryKey;
+    fetchSummary(appliedStartDate, appliedEndDate, isRefresh);
+  }, [bucket.id, appliedStartDate, appliedEndDate, categoryKey, dataVersion]);
 
   const handleDateFocus = () => {
     setIsAllChecked(false);

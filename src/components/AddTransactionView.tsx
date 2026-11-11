@@ -149,8 +149,10 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
       if (!deleteData || deleteData.length === 0) {
         throw new Error('This transaction was already deleted, or you no longer have permission to delete it. Go back and refresh to see the latest state.');
       }
-      await logActivity(editingTransaction.bucket_id, 'transaction_deleted', { remarks: editingTransaction.remarks, amount: editingTransaction.amount });
-      
+      // Not awaited: the delete is already done, so the form doesn't wait
+      // another round trip for the log entry. logActivity never throws.
+      void logActivity(editingTransaction.bucket_id, 'transaction_deleted', { remarks: editingTransaction.remarks, amount: editingTransaction.amount });
+
       if (onOptimisticDelete) {
         onOptimisticDelete(editingTransaction.id);
       }
@@ -188,8 +190,18 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not found');
+      // Who is saving comes from the session already on this device, so the
+      // save doesn't wait on a trip to the login server - the database checks
+      // the token on the write itself.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error('User not found');
+      const user = session.user;
+
+      // The login check still runs, just without the save waiting on it: if
+      // this session has been revoked it signs the device out, as it did when
+      // it ran first. Passing the token keeps it off the auth lock that the
+      // write below needs.
+      supabase.auth.getUser(session.access_token).catch(() => {});
 
       let fileUrl = preview;
       if (file) {
@@ -261,7 +273,9 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
           };
         }
 
-        await logActivity(transactionData.bucket_id!, 'transaction_edited', { 
+        // Not awaited: the save is already done, so the form doesn't wait
+        // another round trip for the log entry. logActivity never throws.
+        void logActivity(transactionData.bucket_id!, 'transaction_edited', {
           transaction_id: editingTransaction.id,
           remarks: transactionData.remarks,
           changes
@@ -275,7 +289,8 @@ export function AddTransactionView({ categories, selectedBucket, editingTransact
 
         if (insertError) throw insertError;
         if (data) {
-          await logActivity(data.bucket_id, 'transaction_added', { remarks: data.remarks, amount: data.amount });
+          // Not awaited, as with the edit log above.
+          void logActivity(data.bucket_id, 'transaction_added', { remarks: data.remarks, amount: data.amount });
           // Swap the temp optimistic row for the real one immediately - if we
           // left the temp `opt-...` id in place, editing/deleting it before
           // the next refetch would fail (that id doesn't exist in the DB).
