@@ -1,8 +1,16 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom'; //[cite: 9]
-import { X, Trash2, LogOut, Search, Download, Clock, Archive, UserCircle, Loader2 } from 'lucide-react'; //[cite: 14]
+import { X, Trash2, LogOut, Search, Download, Clock, Archive, UserCircle, Loader2, ChartColumn } from 'lucide-react'; //[cite: 14]
 import { cn } from '../lib/utils'; //[cite: 14]
 import { motion, AnimatePresence } from 'motion/react'; //[cite: 14]
+
+// Which version is running, for the lines at the bottom of the menu: its code
+// (the commit) and when it was built, e.g. "Version 0ecd898" and
+// "Updated 12 Nov 2026, 7:05 pm".
+const builtAt = new Date(__APP_BUILD__.builtAt);
+const UPDATED_LABEL = Number.isNaN(builtAt.getTime())
+  ? ''
+  : builtAt.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 interface SidebarProps {
   isOpen: boolean; //[cite: 14]
@@ -16,6 +24,7 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
   // Map items to actual application URL paths[cite: 9]
   const menuItems = [
     { path: '/analyze', label: 'Search', icon: Search }, //[cite: 9, 14]
+    { path: '/tracker', label: 'Tracker', icon: ChartColumn },
     { path: '/recently-added', label: 'Recently Added', icon: Clock }, //[cite: 9, 14]
     { path: '/archive', label: 'Archive', icon: Archive }, //[cite: 9, 14]
     { path: '/deleted', label: 'Recycle Bin', icon: Trash2 }, //[cite: 9, 14]
@@ -51,7 +60,7 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
             animate={{ x: 0 }} //[cite: 14]
             exit={{ x: '-100%' }} //[cite: 14]
             transition={{ type: 'spring', damping: 25, stiffness: 200 }} //[cite: 14]
-            className="fixed top-0 left-0 bottom-0 w-64 bg-white rounded-r-3xl shadow-xl z-50 p-6 flex flex-col" //[cite: 14]
+            className="fixed top-0 left-0 bottom-0 w-64 bg-white rounded-r-3xl shadow-xl z-50 p-6 flex flex-col overflow-y-auto" //[cite: 14]
           >
             <div className="flex justify-between items-center mb-10">
               <h2 className="text-2xl font-black uppercase tracking-tighter">Menu</h2> {/*[cite: 14] */}
@@ -125,6 +134,11 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
               <LogOut className="w-5 h-5" /> {/*[cite: 14] */}
               Logout {/*[cite: 14] */}
             </motion.button>
+
+            <p className="mt-3 text-center text-[10px] leading-4 font-bold text-zinc-500">
+              <span className="block">Version {__APP_BUILD__.sha}</span>
+              {UPDATED_LABEL && <span className="block">Updated {UPDATED_LABEL}</span>}
+            </p>
           </motion.div>
         </>
       )}

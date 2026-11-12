@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Routes, Route, useNavigate, useLocation, useMatch, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, useMatch, Navigate, useParams, useNavigationType } from 'react-router-dom';
 import { supabase, type Category, type Transaction, type Bucket, type BucketShare } from './lib/supabase';
 import { AuthView } from './components/AuthView';
 import { DashboardView } from './components/DashboardView';
@@ -13,6 +13,7 @@ import { AnalyzeView, type AnalyzeSnapshot } from './components/AnalyzeView';
 import { RecentlyAddedView } from './components/RecentlyAddedView';
 import { ActivityLogView } from './components/ActivityLogView';
 import { SummaryView } from './components/SummaryView';
+import { TrackerView } from './components/TrackerView';
 import { ProfileView } from './components/ProfileView';
 import { Sidebar } from './components/Sidebar';
 import { ToastStack, type ToastMessage } from './components/Toast';
@@ -36,6 +37,7 @@ const MemoizedAnalyzeView = React.memo(AnalyzeView);
 const MemoizedRecentlyAddedView = React.memo(RecentlyAddedView);
 const MemoizedActivityLogView = React.memo(ActivityLogView);
 const MemoizedSummaryView = React.memo(SummaryView);
+const MemoizedTrackerView = React.memo(TrackerView);
 const MemoizedProfileView = React.memo(ProfileView);
 const MemoizedSidebar = React.memo(Sidebar);
 
@@ -130,7 +132,11 @@ export default function App() {
   const isBucketDashboard = useMatch('/bucket/:bucketId/dashboard') !== null;
   const isAddTransaction = useMatch('/bucket/:bucketId/add-transaction') !== null;
   const isSearch = useMatch('/analyze') !== null;
-  const hidesAppHeader = isBucketDashboard || isAddTransaction || isSearch;
+  const isTracker = useMatch('/tracker') !== null;
+  // How the current screen was reached. Read here, outside <Routes location>,
+  // because inside it React Router reports every visit as a Back ('POP').
+  const navigationType = useNavigationType();
+  const hidesAppHeader = isBucketDashboard || isAddTransaction || isSearch || isTracker;
 
   const [session, setSession] = useState<any>(null);
   // sessionUserKey of the session in state; undefined until the first answer.
@@ -1208,6 +1214,23 @@ const splitTimestamp = (ts: string | null | undefined) => {
                   navigate(`/bucket/${t.bucket_id}/view-transaction`);
                 }}
                 onOpenMenu={() => setIsSidebarOpen(true)}
+              />
+            } />
+
+            <Route path="/tracker" element={
+              <MemoizedTrackerView
+                buckets={activeBuckets}
+                categories={categories}
+                userId={session.user.id}
+                dataVersion={dataVersion}
+                cameBack={navigationType === 'POP'}
+                onBack={() => navigate(-1)}
+                onOpenMenu={() => setIsSidebarOpen(true)}
+                onOpenInSearch={({ bucketId, categoryId, startDate, endDate }) => {
+                  setAnalyzeParams({ categoryId, bucketId, startDate, endDate, autoRun: true });
+                  setAnalyzeSnapshot(null);
+                  navigate('/analyze');
+                }}
               />
             } />
 

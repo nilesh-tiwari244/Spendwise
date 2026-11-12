@@ -150,7 +150,8 @@ export function AnalyzeView({ categories, buckets, shares, profiles, selectedBuc
     if (selectedBucket) return categories.filter(c => c.bucket_id === selectedBucket.id);
     const seen = new Set();
     return categories.filter(c => {
-      const lowerName = c.name.toLowerCase();
+      // Spaces at either end don't make a different category (same as Tracker).
+      const lowerName = c.name.trim().toLowerCase();
       if (seen.has(lowerName)) return false;
       seen.add(lowerName);
       return true;
@@ -202,10 +203,10 @@ const runAnalysis = async () => {
     const matchingCategoryIds = realCategoryIds.length > 0
       ? (() => {
           const selectedNames = new Set(
-            realCategoryIds.map(id => categories.find(c => c.id === id)?.name?.toLowerCase()).filter((n): n is string => !!n)
+            realCategoryIds.map(id => categories.find(c => c.id === id)?.name?.trim().toLowerCase()).filter((n): n is string => !!n)
           );
           return selectedNames.size > 0
-            ? categories.filter(c => selectedNames.has(c.name.toLowerCase())).map(c => c.id)
+            ? categories.filter(c => selectedNames.has(c.name.trim().toLowerCase())).map(c => c.id)
             : realCategoryIds;
         })()
       : null;
