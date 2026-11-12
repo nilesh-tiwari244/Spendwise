@@ -67,9 +67,17 @@ function keywordFilter(keyword: string, categories: { id: string; name: string }
   const conditions: string[] = [];
   const categoryIds = new Set<string>();
   for (const word of words) {
-    // % and _ match themselves here instead of acting as wildcards.
-    const pattern = `%${word.replace(/[\\%_]/g, ch => `\\${ch}`)}%`;
-    conditions.push(`remarks.ilike.${quoteFilterValue(pattern)}`);
+    if (word.includes('*')) {
+      // The API reads * in a pattern search as "anything", with no way to
+      // escape it, so "*" alone matched every transaction. A word with a *
+      // is matched as plain text through a case-insensitive regex instead.
+      const literal = word.replace(/[.*+?^${}()|[\]\\]/g, ch => `\\${ch}`);
+      conditions.push(`remarks.imatch.${quoteFilterValue(literal)}`);
+    } else {
+      // % and _ match themselves here instead of acting as wildcards.
+      const pattern = `%${word.replace(/[\\%_]/g, ch => `\\${ch}`)}%`;
+      conditions.push(`remarks.ilike.${quoteFilterValue(pattern)}`);
+    }
     for (const c of categories) {
       if (c.name.toLowerCase().includes(word)) categoryIds.add(c.id);
     }

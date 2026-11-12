@@ -32,6 +32,37 @@ export function wasUpdatedAfterAdding(
   return true;
 }
 
+// The order every transaction list uses: later date first, and for the same
+// date, the one added later first.
+export function isNewerTransaction(
+  a: { date: string; created_at: string },
+  b: { date: string; created_at: string }
+): boolean {
+  const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+  if (dateDiff !== 0) return dateDiff > 0;
+  return new Date(a.created_at).getTime() > new Date(b.created_at).getTime();
+}
+
+// Whether a row missing from App's latest refresh window was really deleted.
+// The window is the newest N rows, so a row older than the window's oldest
+// row may simply have been pushed below it by newer ones - that one stays.
+// A row inside the window's range, or any row when the window held every
+// transaction there is, would have come back if it still existed.
+export function wasDroppedFromWindow(
+  row: { date: string; created_at: string },
+  windowRows: { date: string; created_at: string; is_optimistic?: boolean }[],
+  windowComplete: boolean
+): boolean {
+  if (windowComplete) return true;
+  // Unsaved rows carry whatever date was typed, so they don't mark the edge.
+  let oldest: { date: string; created_at: string } | null = null;
+  for (const t of windowRows) {
+    if (t.is_optimistic) continue;
+    if (!oldest || isNewerTransaction(oldest, t)) oldest = t;
+  }
+  return oldest !== null && isNewerTransaction(row, oldest);
+}
+
 // Category names already used in the user's other buckets, most widely used
 // first, minus names this bucket already has. Reusing the exact spelling keeps
 // month-end totals together, since Search matches categories across buckets by

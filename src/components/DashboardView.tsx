@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 're
 import { useNavigate, useNavigationType } from 'react-router-dom';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
-import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts, wasUpdatedAfterAdding } from '../lib/utils';
+import { formatCurrency, cn, formatDate, formatUserDisplay, truncateRemarks, getDateParts, wasUpdatedAfterAdding, wasDroppedFromWindow } from '../lib/utils';
 import { Plus, Tag, Edit2, Paperclip, History, Loader2, ClipboardList, Search, Menu } from 'lucide-react';
 
 function getContrastColor(hexColor: string | undefined): string {
@@ -56,6 +56,10 @@ interface DashboardViewProps {
   onSearchBucket: () => void;
   onOpenMenu?: () => void;
   totalBalance: number;
+  // Whether App's latest refresh held every transaction in this bucket.
+  windowComplete?: boolean;
+  // Tells App how many rows this list shows, so its refresh covers them all.
+  onRowsShown?: (count: number) => void;
 }
 
 export function DashboardView({
@@ -70,7 +74,9 @@ export function DashboardView({
   onViewTransaction,
   onSearchBucket,
   onOpenMenu,
-  totalBalance
+  totalBalance,
+  windowComplete = false,
+  onRowsShown
 }: DashboardViewProps) {
   
   const navigate = useNavigate();
@@ -128,7 +134,8 @@ export function DashboardView({
       const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
       prev.forEach(t => {
         const isStaleOptimistic = t.is_optimistic && !incomingIds.has(t.id);
-        const droppedFromWindow = knownWindowIdsRef.current.has(t.id) && !incomingIds.has(t.id);
+        const droppedFromWindow = knownWindowIdsRef.current.has(t.id) && !incomingIds.has(t.id)
+          && wasDroppedFromWindow(t, transactions, windowComplete);
         if (isStaleOptimistic || droppedFromWindow) {
           map.delete(t.id);
         }
@@ -143,6 +150,11 @@ export function DashboardView({
 
     knownWindowIdsRef.current = incomingIds;
   }, [transactions]);
+
+  useEffect(() => {
+    onRowsShown?.(localTransactions.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localTransactions.length, bucket.id]);
 
   // offsetOverride forces a fetch from a specific position, bypassing the
   // in-flight/exhausted guards below - used to load a bucket's first page

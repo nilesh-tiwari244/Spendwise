@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, type Transaction, type Bucket, type BucketShare } from '../lib/supabase';
 import { notifyError } from '../lib/toast';
-import { formatCurrency, cn, formatUserDisplay, truncateRemarks, getDateParts, wasUpdatedAfterAdding } from '../lib/utils';
+import { formatCurrency, cn, formatUserDisplay, truncateRemarks, getDateParts, wasUpdatedAfterAdding, wasDroppedFromWindow } from '../lib/utils';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -11,11 +11,13 @@ interface RecentlyAddedViewProps {
   shares: BucketShare[];
   profiles: Record<string, string>;
   user: any;
+  // Whether App's latest refresh held every transaction in the active buckets.
+  windowComplete?: boolean;
   onBack: () => void;
   onViewTransaction: (transaction: Transaction) => void;
 }
 
-export function RecentlyAddedView({ transactions, buckets, shares, profiles, user, onBack, onViewTransaction }: RecentlyAddedViewProps) {
+export function RecentlyAddedView({ transactions, buckets, shares, profiles, user, windowComplete = false, onBack, onViewTransaction }: RecentlyAddedViewProps) {
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
@@ -36,7 +38,8 @@ export function RecentlyAddedView({ transactions, buckets, shares, profiles, use
     setLocalTransactions(prev => {
       const map = new Map<string, Transaction>(prev.map(t => [t.id, t]));
       prev.forEach(t => {
-        if (knownWindowIdsRef.current.has(t.id) && !incomingIds.has(t.id)) {
+        if (knownWindowIdsRef.current.has(t.id) && !incomingIds.has(t.id)
+          && wasDroppedFromWindow(t, transactions, windowComplete)) {
           map.delete(t.id);
         }
       });

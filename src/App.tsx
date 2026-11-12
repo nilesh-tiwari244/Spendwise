@@ -39,6 +39,70 @@ const MemoizedSummaryView = React.memo(SummaryView);
 const MemoizedProfileView = React.memo(ProfileView);
 const MemoizedSidebar = React.memo(Sidebar);
 
+// App keeps the newest transactions refreshed for whichever list is open: on
+// a bucket screen as many rows as that screen shows, elsewhere a fixed 100.
+// The server sends at most 1,000 rows per request.
+const TX_WINDOW = 100;
+const MAX_TX_WINDOW = 1000;
+
+// A transaction change this device has just saved: the row's updated_at as
+// the server stored it, or that it was a delete. Kept for OWN_ECHO_MS - how
+// long the change can take to come back over the live connection.
+type OwnWrite = { at: number; updatedAt?: string | null; deleted?: boolean };
+const OWN_ECHO_MS = 15000;
+
+const noteOwnWrite = (writes: Map<string, OwnWrite>, id: string, write: Omit<OwnWrite, 'at'>) => {
+  const now = Date.now();
+  writes.forEach((w, key) => {
+    if (now - w.at > OWN_ECHO_MS) writes.delete(key);
+  });
+  writes.set(id, { ...write, at: now });
+};
+
+// A database timestamp as microseconds since 1970, however it is written:
+// a save's reply has "2026-11-12T10:20:30.123456+00:00", while the live
+// connection passes on the database's own "2026-11-12 10:20:30.123456+00".
+// null if it can't be read.
+const timestampMicros = (s?: string | null): number | null => {
+  const m = s ? /^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:\.(\d+))?(Z|[+-]\d\d(?::?\d\d)?)?$/.exec(s) : null;
+  if (!m) return null;
+  const [, y, mo, d, h, mi, sec, frac = '', tz = 'Z'] = m;
+  let offsetMinutes = 0;
+  if (tz !== 'Z') {
+    const hhmm = tz.slice(1).replace(':', '');
+    offsetMinutes = (tz[0] === '-' ? -1 : 1) * (Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(2, 4) || 0));
+  }
+  const ms = Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec) - offsetMinutes * 60000;
+  return ms * 1000 + Number(frac.padEnd(6, '0').slice(0, 6));
+};
+
+const sameInstant = (a?: string | null, b?: string | null) => {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const t = timestampMicros(a);
+  return t !== null && t === timestampMicros(b);
+};
+
+// Whether a live transaction event is exactly a change this device saved, and
+// if so forget that save so a later change to the same row isn't taken for
+// it. A change from anywhere else - another person, or this same account on
+// another device - never matches.
+const takeOwnEcho = (writes: Map<string, OwnWrite>, row: any): boolean => {
+  const w = row?.id ? writes.get(row.id) : undefined;
+  if (!w || Date.now() - w.at > OWN_ECHO_MS) return false;
+  const matches = w.deleted
+    ? !!row.deleted_at
+    : !row.deleted_at && sameInstant(row.updated_at, w.updatedAt);
+  if (matches) writes.delete(row.id);
+  return matches;
+};
+
+// Who a session belongs to. Supabase hands over a fresh session object every
+// time it announces anything (each return to the app, each token renewal),
+// so this is what tells a real change of user apart from a repeat.
+const sessionUserKey = (s: any): string | null =>
+  s?.user ? `${s.user.id}|${s.user.email}` : null;
+
 type AnalyzeParams = {
   categoryId?: string;
   bucketId?: string;
@@ -69,6 +133,8 @@ export default function App() {
   const hidesAppHeader = isBucketDashboard || isAddTransaction || isSearch;
 
   const [session, setSession] = useState<any>(null);
+  // sessionUserKey of the session in state; undefined until the first answer.
+  const sessionUserKeyRef = useRef<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   
@@ -144,12 +210,11 @@ export default function App() {
     urlBucketIdRef.current = urlBucketId;
   }, [urlBucketId]);
 
-  const loadedTxCount = useRef(50);
-  useEffect(() => {
-    if (transactions.length > loadedTxCount.current) {
-      loadedTxCount.current = transactions.length;
-    }
-  }, [transactions.length]);
+  // Rows each bucket screen is showing (it reports them), and the last refresh
+  // window: which list it was for, how many rows it asked for and how many
+  // came back - fewer than asked means it held every transaction there.
+  const bucketRowsShownRef = useRef<Record<string, number>>({});
+  const txWindowRef = useRef<{ scope: string; limit: number; count: number } | null>(null);
 
   useEffect(() => {
     bucketIdsRef.current = new Set(buckets.map(b => b.id));
@@ -202,6 +267,20 @@ export default function App() {
   useEffect(() => {
     transactionsRef.current = transactions;
   }, [transactions]);
+
+  // The transaction open for editing. The balance adjustment in optimistic
+  // edit/delete falls back to it when that row isn't in App's refresh window
+  // (a row further down than the window reaches), so the balance on screen
+  // still moves straight away.
+  const editingTransactionRef = useRef<Transaction | null>(null);
+  useEffect(() => {
+    editingTransactionRef.current = editingTransaction;
+  }, [editingTransaction]);
+
+  // Transactions this device has just added, edited or deleted. When one of
+  // those exact changes comes back over the live connection it is skipped,
+  // since the screen already shows it. Every other change refreshes.
+  const ownWritesRef = useRef<Map<string, OwnWrite>>(new Map());
 
   const { prefs, updatePreference } = useBucketPreferences(session?.user?.id);
 
@@ -273,15 +352,28 @@ export default function App() {
       setProfiles({});
     };
 
+    // Only a different user (or signing in or out) replaces the session.
+    // Everything keyed on it - the data load, the live-update channels -
+    // used to restart on every repeat announcement: three full reloads each
+    // time the app came back into view, and one more with every token
+    // renewal. Returns whether the user changed.
+    const applySession = (newSession: any) => {
+      const key = sessionUserKey(newSession);
+      if (key === sessionUserKeyRef.current) return false;
+      sessionUserKeyRef.current = key;
+      setSession(newSession);
+      return true;
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       clearStaleCacheIfUserChanged(session);
-      setSession(session);
+      applySession(session);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       clearStaleCacheIfUserChanged(session);
-      setSession(session);
+      const userChanged = applySession(session);
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecovery(true);
       }
@@ -289,9 +381,10 @@ export default function App() {
       // if the pathname was already "/" (e.g. logged out while scrolled
       // down, then logged back in) - the pathname-keyed scroll-restoration
       // effect below wouldn't catch that since the path never changed.
-      // SIGNED_IN specifically (not the initial-load session restore) so we
-      // don't yank scroll position around on a normal page refresh.
-      if (event === 'SIGNED_IN') {
+      // Supabase also sends SIGNED_IN each time the app comes back into
+      // view, so only a real change of user counts, or the list would jump
+      // to the top on every return.
+      if (event === 'SIGNED_IN' && userChanged) {
         window.scrollTo(0, 0);
       }
     });
@@ -368,6 +461,12 @@ export default function App() {
 
       let transactionsData: Transaction[] = [];
       let txFetchFailed = false;
+      // Sized to what's on screen, never to the last answer - that is what
+      // made each reload ask for 10-50 more rows than the one before.
+      const windowScope = urlBucketIdRef.current;
+      const windowLimit = windowScope
+        ? Math.min(MAX_TX_WINDOW, Math.max(TX_WINDOW, bucketRowsShownRef.current[windowScope] ?? 0))
+        : TX_WINDOW;
       if (activeBucketIds.length > 0) {
         let query = supabase
           .from('transactions')
@@ -376,10 +475,10 @@ export default function App() {
           .order('date', { ascending: false })
           .order('created_at', { ascending: false });
 
-        if (urlBucketIdRef.current) {
-          query = query.eq('bucket_id', urlBucketIdRef.current).limit(loadedTxCount.current + 10);
+        if (windowScope) {
+          query = query.eq('bucket_id', windowScope).limit(windowLimit);
         } else {
-          query = query.in('bucket_id', activeBucketIds).limit(loadedTxCount.current + 50);
+          query = query.in('bucket_id', activeBucketIds).limit(windowLimit);
         }
 
         const { data, error } = await query;
@@ -410,6 +509,7 @@ export default function App() {
       setDataVersion(v => v + 1);
 
       if (!txFetchFailed) {
+        txWindowRef.current = { scope: windowScope ?? 'all', limit: windowLimit, count: transactionsData.length };
         setTransactions(transactionsData.sort((a, b) => {
           const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
           if (dateDiff !== 0) return dateDiff;
@@ -450,84 +550,138 @@ export default function App() {
       const myEmail = session.user.email;
       const myId = session.user.id;
 
-      const transactionsChannel = supabase
-        .channel('transactions-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, (payload) => {
-          const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
-          const actorEmail = row?.last_edited_by;
-          const bucketId = row?.bucket_id;
+      // Reload once when a channel joins after a gap. A channel that was
+      // joined before and reports SUBSCRIBED again has reconnected (a network
+      // drop, a server restart). A channel made to replace a broken one can
+      // finish joining after the reload done on coming back to the app.
+      // Either way, changes made in between were never delivered.
+      const catchUpOnJoin = (afterGap: boolean) => {
+        let joinedBefore = afterGap;
+        return (status: string) => {
+          if (status !== 'SUBSCRIBED') return;
+          if (joinedBefore) debouncedFetchData();
+          joinedBefore = true;
+        };
+      };
 
-          // Skip the refetch entirely when the change is our own echo - our
-          // optimistic update already reflects it, and this is the event
-          // that made every edit trigger a redundant full refetch on top of
-          // the one already done in AddTransactionView's onSuccess. Only
-          // refetch when someone else made the change, mirroring exactly
-          // the condition that decides whether to toast about it.
-          if (bucketId && bucketIdsRef.current.has(bucketId) && actorEmail && actorEmail !== myEmail) {
-            const actorLabel = profilesRef.current[actorEmail] || actorEmail;
-            let verb = 'updated a transaction';
-            if (payload.eventType === 'INSERT') verb = 'added a transaction';
-            else if (row?.deleted_at) verb = 'deleted a transaction';
-            pushToast(`${actorLabel} ${verb}`);
-            debouncedFetchData();
-          }
-        })
-        .subscribe();
+      const subscribeAll = (afterGap = false) => [
+        supabase
+          .channel('transactions-changes')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, (payload) => {
+            const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
+            const actorEmail = row?.last_edited_by;
+            const bucketId = row?.bucket_id;
+            if (!bucketId || !bucketIdsRef.current.has(bucketId)) return;
 
-      const categoriesChannel = supabase
-        .channel('categories-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, (payload) => {
-          const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
-          const bucketId = row?.bucket_id;
-          const actorId = row?.user_id;
+            // This device's own save coming back: the screen already shows
+            // it, so no reload.
+            if (takeOwnEcho(ownWritesRef.current, row)) return;
 
-          // Same self-echo skip as the transactions channel above - only
-          // refetch when someone else made the change.
-          if (bucketId && bucketIdsRef.current.has(bucketId) && actorId && actorId !== myId) {
-            if (payload.eventType === 'INSERT') {
-              const actorLabel = profilesRef.current[actorId] || 'A collaborator';
-              pushToast(`${actorLabel} added a category`);
-            } else if (payload.eventType === 'DELETE') {
-              pushToast('A category was removed by a collaborator');
-            } else {
-              // Categories have no last-edited-by tracking, so edits can't be
-              // reliably attributed to a specific collaborator.
-              pushToast('Categories were updated by a collaborator');
+            // Everything else reloads. This used to skip any change whose
+            // "last edited by" was me, which also skipped my changes from
+            // another device, and other people's deletes of transactions I
+            // last edited (a delete doesn't change "last edited by"). Only
+            // other people's changes get a toast.
+            if (actorEmail && actorEmail !== myEmail) {
+              const actorLabel = profilesRef.current[actorEmail] || actorEmail;
+              let verb = 'updated a transaction';
+              if (payload.eventType === 'INSERT') verb = 'added a transaction';
+              else if (row?.deleted_at) verb = 'deleted a transaction';
+              pushToast(`${actorLabel} ${verb}`);
             }
             debouncedFetchData();
-          }
-        })
-        .subscribe();
+          })
+          .subscribe(catchUpOnJoin(afterGap)),
 
-      const sharesChannel = supabase
-        .channel('shares-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_shares' }, (payload) => {
-          const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
+        supabase
+          .channel('categories-changes')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, (payload) => {
+            const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
+            const bucketId = row?.bucket_id;
+            const actorId = row?.user_id;
+            if (!bucketId || !bucketIdsRef.current.has(bucketId)) return;
 
-          if (payload.eventType === 'INSERT' && row?.status === 'pending' && row?.shared_with_email === myEmail) {
-            const actorLabel = profilesRef.current[row.shared_by_email] || row.shared_by_email;
-            pushToast(`${actorLabel} invited you to a bucket`);
-          } else if (payload.eventType === 'UPDATE' && row?.status === 'accepted' && row?.shared_by_email === myEmail) {
-            const actorLabel = profilesRef.current[row.shared_with_email] || row.shared_with_email;
-            pushToast(`${actorLabel} accepted your invite`);
-          }
+            // A category only records who created it, not who changed it, so
+            // every change reloads. Skipping categories I created also
+            // skipped my changes from another device and other people's
+            // changes to my categories. A change made here already reloaded
+            // right after saving and reloads once more; categories change
+            // rarely. Categories someone else created get a toast, as before.
+            if (actorId && actorId !== myId) {
+              if (payload.eventType === 'INSERT') {
+                const actorLabel = profilesRef.current[actorId] || 'A collaborator';
+                pushToast(`${actorLabel} added a category`);
+              } else if (payload.eventType === 'DELETE') {
+                pushToast('A category was removed by a collaborator');
+              } else {
+                // Categories have no last-edited-by tracking, so edits can't be
+                // reliably attributed to a specific collaborator.
+                pushToast('Categories were updated by a collaborator');
+              }
+            }
+            debouncedFetchData();
+          })
+          .subscribe(catchUpOnJoin(afterGap)),
 
-          debouncedFetchData();
-        })
-        .subscribe();
+        supabase
+          .channel('shares-changes')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_shares' }, (payload) => {
+            const row: any = (payload.new && Object.keys(payload.new).length > 0) ? payload.new : payload.old;
 
+            if (payload.eventType === 'INSERT' && row?.status === 'pending' && row?.shared_with_email === myEmail) {
+              const actorLabel = profilesRef.current[row.shared_by_email] || row.shared_by_email;
+              pushToast(`${actorLabel} invited you to a bucket`);
+            } else if (payload.eventType === 'UPDATE' && row?.status === 'accepted' && row?.shared_by_email === myEmail) {
+              const actorLabel = profilesRef.current[row.shared_with_email] || row.shared_with_email;
+              pushToast(`${actorLabel} accepted your invite`);
+            }
+
+            debouncedFetchData();
+          })
+          .subscribe(catchUpOnJoin(afterGap)),
+      ];
+      let channels = subscribeAll();
+      const rebuildChannels = () => {
+        channels.forEach(c => supabase.removeChannel(c));
+        channels = subscribeAll(true);
+      };
+
+      // Coming back to the app: reload once - visibilitychange and focus both
+      // fire on a return, so the second is skipped - and make sure live
+      // updates are connected. Token renewals reach the live connection by
+      // themselves (supabase-js passes each new token on), so healthy
+      // channels are left alone; broken ones are rebuilt. Starts at "now" so
+      // a focus event right after the first load doesn't reload again.
+      let lastResumeAt = Date.now();
       const handleVisibility = () => {
-        if (document.visibilityState === 'visible') {
-          fetchData(false);
+        if (document.visibilityState !== 'visible') return;
+        const now = Date.now();
+        if (now - lastResumeAt < 2000) return;
+        lastResumeAt = now;
+        fetchData(false);
+
+        if (channels.some(c => c.state !== 'joined' && c.state !== 'joining')) {
+          rebuildChannels();
+        } else if (!supabase.realtime.isConnected()) {
+          supabase.realtime.connect();
         }
       };
       document.addEventListener('visibilitychange', handleVisibility);
       window.addEventListener('focus', handleVisibility);
 
+      // While the app stays open, replace any channel the server has closed
+      // (for example when its login token ran out): the library retries
+      // channels that errored but never ones that were closed. Rebuilding
+      // the channels on every token renewal used to do this by accident.
+      const healTimer = setInterval(() => {
+        if (document.visibilityState !== 'visible') return;
+        const tracked = supabase.getChannels();
+        if (channels.some(c => !tracked.includes(c))) rebuildChannels();
+      }, 30000);
+
       return () => {
-        supabase.removeChannel(transactionsChannel);
-        supabase.removeChannel(categoriesChannel);
-        supabase.removeChannel(sharesChannel);
+        clearInterval(healTimer);
+        channels.forEach(c => supabase.removeChannel(c));
         document.removeEventListener('visibilitychange', handleVisibility);
         window.removeEventListener('focus', handleVisibility);
         if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
@@ -572,6 +726,7 @@ export default function App() {
   // until the next debounced refetch, so editing/deleting that same
   // transaction in the meantime would fail (that id doesn't exist in the DB).
   const confirmOptimisticAdd = useCallback((tempId: string, realTx: Transaction) => {
+    noteOwnWrite(ownWritesRef.current, realTx.id, { updatedAt: realTx.updated_at });
     setTransactions(prev => prev.map(t => t.id === tempId
       ? { ...realTx, category: categories.find(c => c.id === realTx.category_id) }
       : t
@@ -580,7 +735,9 @@ export default function App() {
 
   const optimisticEditTransaction = useCallback((updatedTx: Partial<Transaction>) => {
     if (!updatedTx.id) return;
-    const t = transactionsRef.current.find(tx => tx.id === updatedTx.id);
+    noteOwnWrite(ownWritesRef.current, updatedTx.id, { updatedAt: updatedTx.updated_at });
+    const t = transactionsRef.current.find(tx => tx.id === updatedTx.id)
+      ?? (editingTransactionRef.current?.id === updatedTx.id ? editingTransactionRef.current : undefined);
     if (!t) return;
 
     const oldAmountDir = t.type === 'Credit' ? Number(t.amount) : -Number(t.amount);
@@ -598,7 +755,9 @@ export default function App() {
   }, [categories]);
 
   const optimisticDeleteTransaction = useCallback((id: string) => {
-    const t = transactionsRef.current.find(tx => tx.id === id);
+    noteOwnWrite(ownWritesRef.current, id, { deleted: true });
+    const t = transactionsRef.current.find(tx => tx.id === id)
+      ?? (editingTransactionRef.current?.id === id ? editingTransactionRef.current : undefined);
     if (!t) return;
 
     const amountChange = t.type === 'Credit' ? -Number(t.amount) : Number(t.amount);
@@ -716,6 +875,13 @@ const splitTimestamp = (ts: string | null | undefined) => {
   }, [enhancedSelectedBucket, session, buckets, enhancedBuckets, isExporting]);
 
   const activeBuckets = useMemo(() => enhancedBuckets.filter(b => !b.archived_at), [enhancedBuckets]);
+
+  // Whether the last refresh window was for this list ('all' = every active
+  // bucket) and came back short, i.e. held every transaction there.
+  const windowHeldAll = (scope: string) => {
+    const w = txWindowRef.current;
+    return !!w && w.scope === scope && w.count < w.limit;
+  };
   
   const activeGlobalTransactions = useMemo(() => {
     const activeBucketIds = new Set(activeBuckets.map(b => b.id));
@@ -903,6 +1069,8 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     profiles={profiles}
                     isLoading={isDataLoading}
                     totalBalance={bucketTotals[bucket.id] || 0}
+                    windowComplete={windowHeldAll(bucket.id)}
+                    onRowsShown={(count) => { bucketRowsShownRef.current[bucket.id] = count; }}
                     onOpenMenu={() => setIsSidebarOpen(true)}
                     onEditTransaction={(t) => {
                       setEditingTransaction(t);
@@ -1050,6 +1218,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                 shares={shares}
                 profiles={profiles}
                 user={session.user}
+                windowComplete={windowHeldAll('all')}
                 onBack={() => navigate(-1)}
                 onViewTransaction={(t) => {
                   setSelectedTransaction(t);
