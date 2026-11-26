@@ -507,24 +507,26 @@ export default function App() {
       const earlyTransactions = windowScope || earlyIds.length > 0 ? askForTransactions(earlyIds) : null;
       earlyTransactions?.catch(() => {});
 
-      // get_bucket_totals takes no arguments and derives its scope from the
-      // auth context server-side, so it doesn't depend on anything fetched
-      // here - it rides along in this same batch rather than costing a
-      // second round trip. The database is a long way from most users, so
-      // each extra sequential hop is a visible chunk of startup time.
-      const [
-        bucketsRes, sharedWithRes, sharedByRes, catRes, orphanedRes, profilesRes,
-        bucketTotalsRes
-      ] = await Promise.all([
+      // Everything is asked for at once - the database is a long way from
+      // most users, so each extra sequential hop is a visible chunk of time.
+      // The buckets and shares (which carry the balances) go on screen as
+      // soon as they're back; member names, categories and the no-bucket
+      // count fill in when theirs arrive, instead of everything waiting for
+      // the slowest request.
+      const bucketsRequest = Promise.all([
         supabase.from('buckets').select('*').order('name', { ascending: true }),
         supabase.from('bucket_shares').select('*, bucket:buckets(*)').eq('shared_with_email', userEmail),
         supabase.from('bucket_shares').select('*').eq('shared_by_email', userEmail),
+      ]);
+      const detailsRequest = Promise.all([
         supabase.from('categories').select('*').order('name', { ascending: true }),
         supabase.from('transactions').select('id', { count: 'exact', head: true }).is('bucket_id', null),
         supabase.from('profiles').select('id, email, display_name'),
-        supabase.rpc('get_bucket_totals')
       ]);
-      if (isInitial) markStartup('data-batch-done');
+      detailsRequest.catch(() => {});
+
+      const [bucketsRes, sharedWithRes, sharedByRes] = await bucketsRequest;
+      if (isInitial) markStartup('buckets-back');
 
       // If the core buckets query itself failed, bail without overwriting
       // everything with empty arrays - that would wipe the screen (and the
@@ -533,18 +535,6 @@ export default function App() {
       if (bucketsRes.error) {
         notifyError('Could not refresh your data. Check your connection and try again.', bucketsRes.error);
         return;
-      }
-
-      let profileMap: Record<string, string> | null = null;
-      if (profilesRes.data) {
-        profileMap = {};
-        profilesRes.data.forEach(p => {
-          if (p.display_name) {
-            profileMap![p.id] = p.display_name;
-            if (p.email) profileMap![p.email] = p.display_name;
-          }
-        });
-        setProfiles(profileMap);
       }
 
       const allBuckets = bucketsRes.data || [];
@@ -562,40 +552,43 @@ export default function App() {
       const activeBuckets = allBuckets.filter(b => !b.archived_at);
       const activeBucketIds = activeBuckets.map(b => b.id);
 
+      // Each bucket row carries its balance, kept up to date by a database
+      // trigger on every add, edit, delete and restore - the same figure the
+      // get_bucket_totals request used to return separately (the slowest
+      // request of the batch). A database without the column falls back to
+      // that request.
       const totalsMap: Record<string, number> = {};
-      if (bucketTotalsRes.data) {
-        bucketTotalsRes.data.forEach((row: any) => {
-          totalsMap[row.bucket_id] = Number(row.total);
-        });
+      let haveTotals = allBuckets.every(b => b.balance !== undefined && b.balance !== null);
+      if (haveTotals) {
+        allBuckets.forEach(b => { totalsMap[b.id] = Number(b.balance); });
+      } else {
+        const { data: totalsRows, error: totalsError } = await supabase.rpc('get_bucket_totals');
+        if (!totalsError && totalsRows) {
+          totalsRows.forEach((row: any) => { totalsMap[row.bucket_id] = Number(row.total); });
+          haveTotals = true;
+        }
       }
 
-      // Everything the home screen shows is here, so it goes on screen now
-      // rather than after the transactions below.
+      // Buckets, balances, shares and invites go on screen now.
       const allShares = [...acceptedShares, ...outgoingShares];
       setShares(allShares);
       setPendingShares(pending);
       setBuckets(allBuckets);
-      if (catRes.data) setCategories(catRes.data);
-      setOrphanedCount(orphanedRes.count || 0);
-      // If the balances request alone failed, the last good balances stay
+      // If the balances couldn't be read, the last good balances stay
       // (dimmed if they're the saved ones) rather than every balance turning
       // into ₹0 - and the saved copy keeps them too.
-      if (bucketTotalsRes.data) {
+      if (haveTotals) {
         setBucketTotals(totalsMap);
         setBalancesAreSaved(false);
         if (isInitial) markStartup('balances-fresh');
       }
-      setDataVersion(v => v + 1);
       setIsAppLoading(false);
 
       try {
         localStorage.setItem(SAVED.buckets, JSON.stringify(allBuckets));
-        if (bucketTotalsRes.data) localStorage.setItem(SAVED.totals, JSON.stringify(totalsMap));
+        if (haveTotals) localStorage.setItem(SAVED.totals, JSON.stringify(totalsMap));
         localStorage.setItem(SAVED.shares, JSON.stringify(allShares));
         localStorage.setItem(SAVED.pendingShares, JSON.stringify(pending));
-        localStorage.setItem(SAVED.orphanedCount, JSON.stringify(orphanedRes.count || 0));
-        if (catRes.data) localStorage.setItem(SAVED.categories, JSON.stringify(catRes.data));
-        if (profileMap) localStorage.setItem(SAVED.profiles, JSON.stringify(profileMap));
         localStorage.setItem(SAVED.uid, session.user.id);
         localStorage.setItem(SAVED.email, session.user.email);
       } catch (e) {
@@ -610,6 +603,34 @@ export default function App() {
         transactionsRequest = earlyTransactions && sameIdSet(earlyIds, activeBucketIds)
           ? earlyTransactions
           : askForTransactions(activeBucketIds);
+      }
+
+      // Member names, categories and the no-bucket count, while the
+      // transactions are still on their way.
+      const [catRes, orphanedRes, profilesRes] = await detailsRequest;
+      if (isInitial) markStartup('details-back');
+      let profileMap: Record<string, string> | null = null;
+      if (profilesRes.data) {
+        profileMap = {};
+        profilesRes.data.forEach(p => {
+          if (p.display_name) {
+            profileMap![p.id] = p.display_name;
+            if (p.email) profileMap![p.email] = p.display_name;
+          }
+        });
+        setProfiles(profileMap);
+      }
+      if (catRes.data) setCategories(catRes.data);
+      if (!orphanedRes.error) setOrphanedCount(orphanedRes.count || 0);
+      // One bump per load, once categories are in too (Summary and Tracker
+      // refresh on it).
+      setDataVersion(v => v + 1);
+      try {
+        if (catRes.data) localStorage.setItem(SAVED.categories, JSON.stringify(catRes.data));
+        if (profileMap) localStorage.setItem(SAVED.profiles, JSON.stringify(profileMap));
+        if (!orphanedRes.error) localStorage.setItem(SAVED.orphanedCount, JSON.stringify(orphanedRes.count || 0));
+      } catch (e) {
+        console.warn('Failed to save cache', e);
       }
 
       let transactionsData: Transaction[] = [];

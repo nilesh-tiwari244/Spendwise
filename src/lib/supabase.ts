@@ -25,6 +25,8 @@ export type Bucket = {
   archived_at: string | null;
   original_name?: string;
   color?: string;
+  // Kept up to date by a database trigger on every transaction change.
+  balance?: number | null;
 };
 
 export type Category = {
