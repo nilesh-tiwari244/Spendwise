@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation, useMatch, Navigate, useParams, useNavigationType } from 'react-router-dom';
 import { supabase, type Category, type Transaction, type Bucket, type BucketShare } from './lib/supabase';
+import { isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { AuthView } from './components/AuthView';
 import { DashboardView } from './components/DashboardView';
 import { AddTransactionView } from './components/AddTransactionView';
@@ -23,6 +24,7 @@ import { cn, downloadCSV, categoryNameSuggestions } from './lib/utils';
 import { logActivity } from './lib/activity';
 import { useBucketPreferences } from './lib/preferences';
 import { fetchAllRows } from './lib/fetchAll';
+import { markStartup } from './lib/startupTiming';
 import { notifyError, ERROR_TOAST_EVENT } from './lib/toast';
 
 // Memoize sub-components for performance
@@ -99,6 +101,47 @@ const takeOwnEcho = (writes: Map<string, OwnWrite>, row: any): boolean => {
   return matches;
 };
 
+// What this device saves after each successful load, so the next open can
+// show the home screen at once. Balances shown from here are dimmed until a
+// fresh load replaces them. Cleared when a different account signs in.
+const SAVED = {
+  uid: 'sw_cache_uid',
+  email: 'sw_cache_email',
+  buckets: 'sw_buckets',
+  totals: 'sw_bucketTotals',
+  categories: 'sw_categories',
+  profiles: 'sw_profiles',
+  shares: 'sw_shares',
+  pendingShares: 'sw_pendingShares',
+  orphanedCount: 'sw_orphanedCount',
+};
+
+function readSaved<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// Whether this device has a saved home screen, and (when the email was saved
+// too) the account it belongs to - used as a stand-in session so the screen
+// shows before the login check, which needs the network when the login has
+// to be renewed, has finished.
+function readSavedStart(): { has: boolean; account: { user: { id: string; email: string } } | null } {
+  try {
+    const id = localStorage.getItem(SAVED.uid);
+    const email = localStorage.getItem(SAVED.email);
+    const has = !!id && !!localStorage.getItem(SAVED.buckets);
+    return { has, account: has && email ? { user: { id: id!, email } } : null };
+  } catch {
+    return { has: false, account: null };
+  }
+}
+
+const sameIdSet = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join(',') === [...b].sort().join(',');
+
 // Who a session belongs to. Supabase hands over a fresh session object every
 // time it announces anything (each return to the app, each token renewal),
 // so this is what tells a real change of user apart from a repeat.
@@ -138,9 +181,14 @@ export default function App() {
   const navigationType = useNavigationType();
   const hidesAppHeader = isBucketDashboard || isAddTransaction || isSearch || isTracker;
 
-  const [session, setSession] = useState<any>(null);
+  // Read once: the home screen saved on this device, and whose it is.
+  const [saved] = useState(readSavedStart);
+  // Starts as the saved account's stand-in (only id and email, which is all
+  // App reads) so the saved home screen shows at once; the login check then
+  // confirms it, signs out, or switches user.
+  const [session, setSession] = useState<any>(saved.account);
   // sessionUserKey of the session in state; undefined until the first answer.
-  const sessionUserKeyRef = useRef<string | null | undefined>(undefined);
+  const sessionUserKeyRef = useRef<string | null | undefined>(saved.account ? sessionUserKey(saved.account) : undefined);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   
@@ -153,19 +201,22 @@ export default function App() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
-  const [isAppLoading, setIsAppLoading] = useState(true);
+  const [isAppLoading, setIsAppLoading] = useState(!saved.has);
   const [isDataLoading, setIsDataLoading] = useState(false);
-  const [bucketTotals, setBucketTotals] = useState<Record<string, number>>({});
+  const [bucketTotals, setBucketTotals] = useState<Record<string, number>>(() => saved.has ? readSaved(SAVED.totals, {}) : {});
+  // True while the balances on screen are the ones saved last time; they are
+  // shown dimmed until a fresh load replaces them.
+  const [balancesAreSaved, setBalancesAreSaved] = useState(saved.has);
   // Goes up each time fetchData brings in fresh data, so screens that fetch
   // their own figures (Summary) know to refresh them too.
   const [dataVersion, setDataVersion] = useState(0);
-  const [orphanedCount, setOrphanedCount] = useState<number>(0);
-  const [buckets, setBuckets] = useState<Bucket[]>([]);
+  const [orphanedCount, setOrphanedCount] = useState<number>(() => saved.has ? readSaved(SAVED.orphanedCount, 0) : 0);
+  const [buckets, setBuckets] = useState<Bucket[]>(() => saved.has ? readSaved(SAVED.buckets, []) : []);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [shares, setShares] = useState<BucketShare[]>([]);
-  const [pendingShares, setPendingShares] = useState<BucketShare[]>([]);
-  const [profiles, setProfiles] = useState<Record<string, string>>({});
+  const [categories, setCategories] = useState<Category[]>(() => saved.has ? readSaved(SAVED.categories, []) : []);
+  const [shares, setShares] = useState<BucketShare[]>(() => saved.has ? readSaved(SAVED.shares, []) : []);
+  const [pendingShares, setPendingShares] = useState<BucketShare[]>(() => saved.has ? readSaved(SAVED.pendingShares, []) : []);
+  const [profiles, setProfiles] = useState<Record<string, string>>(() => saved.has ? readSaved(SAVED.profiles, {}) : {});
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddingBucket, setIsAddingBucket] = useState(false);
   const [newBucketName, setNewBucketName] = useState('');
@@ -222,8 +273,12 @@ export default function App() {
   const bucketRowsShownRef = useRef<Record<string, number>>({});
   const txWindowRef = useRef<{ scope: string; limit: number; count: number } | null>(null);
 
+  // Active (not archived) bucket ids from the latest list, so a reload can
+  // ask for the home screen's transactions without waiting for the bucket list.
+  const activeBucketIdsRef = useRef<string[]>([]);
   useEffect(() => {
     bucketIdsRef.current = new Set(buckets.map(b => b.id));
+    activeBucketIdsRef.current = buckets.filter(b => !b.archived_at).map(b => b.id);
   }, [buckets]);
 
   // Forget per-route transient state on a genuine exit from that route,
@@ -307,22 +362,6 @@ export default function App() {
     return enhancedBuckets.find(b => b.id === urlBucketId) || null;
   }, [urlBucketId, enhancedBuckets]);
 
-  // SWR Cache
-  useEffect(() => {
-    try {
-      const cachedBuckets = localStorage.getItem('sw_buckets');
-      const cachedTotals = localStorage.getItem('sw_bucketTotals');
-
-      if (cachedBuckets) {
-        setBuckets(JSON.parse(cachedBuckets));
-        setIsAppLoading(false);
-      }
-      if (cachedTotals) setBucketTotals(JSON.parse(cachedTotals));
-    } catch (e) {
-      console.warn('Failed to load cache:', e);
-    }
-  }, []);
-
   useEffect(() => {
     const hash = window.location.hash;
     if (hash && hash.includes('type=recovery')) {
@@ -337,17 +376,18 @@ export default function App() {
     // can never flash under a different account's session while the new
     // fetch is in flight.
     const clearStaleCacheIfUserChanged = (newSession: any) => {
-      const cachedUid = localStorage.getItem('sw_cache_uid');
+      const cachedUid = localStorage.getItem(SAVED.uid);
       const newUid = newSession?.user?.id || null;
       if (cachedUid === newUid) return;
 
       try {
-        localStorage.removeItem('sw_buckets');
-        localStorage.removeItem('sw_bucketTotals');
-        localStorage.removeItem('sw_cache_uid');
+        Object.values(SAVED).forEach(key => localStorage.removeItem(key));
       } catch (e) {
         console.warn('Failed to clear cache', e);
       }
+      setBalancesAreSaved(false);
+      // A new account has nothing to show until its first load arrives.
+      setIsAppLoading(!!newUid);
       setBuckets([]);
       setTransactions([]);
       setCategories([]);
@@ -371,15 +411,42 @@ export default function App() {
       return true;
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const loginCheckStart = performance.now();
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      const took = performance.now() - loginCheckStart;
+      // The login couldn't be renewed only because the network failed (no
+      // signal, say). Supabase keeps the login and retries, announcing it
+      // below once renewed. Meanwhile the saved screen stays, dimmed, rather
+      // than being wiped for the login screen. With no saved screen there's
+      // nothing to keep showing, so that case goes to the login screen.
+      if (!session && error && isAuthRetryableFetchError(error) && sessionUserKeyRef.current) {
+        markStartup('login-check-done', `${Math.round(took)}ms, renewal failed - no network, waiting`);
+        return;
+      }
+      markStartup('login-check-done', took > 150 ? `${Math.round(took)}ms, renewed online` : `${Math.round(took)}ms, no renewal needed`);
       clearStaleCacheIfUserChanged(session);
       applySession(session);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // The first answer is handled by getSession above, which can also tell
+      // a sign-out apart from a renewal that failed for lack of network.
+      if (event === 'INITIAL_SESSION') return;
       clearStaleCacheIfUserChanged(session);
+      const previousUser = sessionUserKeyRef.current;
       const userChanged = applySession(session);
+      // Signed out, or another account signed in, after someone was signed
+      // in: start again from Home with nothing kept in memory. Otherwise the
+      // next sign-in opened on whatever page was showing (a bucket, say) and
+      // Search could still hold the previous person's results.
+      if (userChanged && previousUser && event !== 'PASSWORD_RECOVERY') {
+        window.location.replace('/');
+        return;
+      }
+      // A renewed login after a failed first check, or a sign-out, also
+      // ends the wait.
+      setLoading(false);
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecovery(true);
       }
@@ -407,10 +474,38 @@ export default function App() {
     if (!session) return;
 
     if (isInitial && buckets.length === 0) setIsAppLoading(true);
-    if (isInitial) setIsDataLoading(true);
+    if (isInitial) {
+      setIsDataLoading(true);
+      markStartup('data-load-start');
+    }
 
     try {
       const userEmail = session.user.email;
+
+      // Sized to what's on screen, never to the last answer - that is what
+      // made each reload ask for 10-50 more rows than the one before.
+      const windowScope = urlBucketIdRef.current;
+      const windowLimit = windowScope
+        ? Math.min(MAX_TX_WINDOW, Math.max(TX_WINDOW, bucketRowsShownRef.current[windowScope] ?? 0))
+        : TX_WINDOW;
+      const askForTransactions = (bucketIds: string[]) => {
+        let query = supabase
+          .from('transactions')
+          .select('*, category:categories(*)')
+          .is('deleted_at', null)
+          .order('date', { ascending: false })
+          .order('created_at', { ascending: false });
+        query = windowScope ? query.eq('bucket_id', windowScope) : query.in('bucket_id', bucketIds);
+        // Promise.resolve sends it now - a query is only sent once awaited.
+        return Promise.resolve(query.limit(windowLimit));
+      };
+      // The transactions go out together with everything else when the
+      // buckets they cover are already known: a bucket screen needs only
+      // its own id, and the home list uses the active buckets this device
+      // already has. Otherwise (first sign-in) they wait for the bucket list.
+      const earlyIds = windowScope ? [] : activeBucketIdsRef.current;
+      const earlyTransactions = windowScope || earlyIds.length > 0 ? askForTransactions(earlyIds) : null;
+      earlyTransactions?.catch(() => {});
 
       // get_bucket_totals takes no arguments and derives its scope from the
       // auth context server-side, so it doesn't depend on anything fetched
@@ -429,6 +524,7 @@ export default function App() {
         supabase.from('profiles').select('id, email, display_name'),
         supabase.rpc('get_bucket_totals')
       ]);
+      if (isInitial) markStartup('data-batch-done');
 
       // If the core buckets query itself failed, bail without overwriting
       // everything with empty arrays - that would wipe the screen (and the
@@ -439,12 +535,13 @@ export default function App() {
         return;
       }
 
+      let profileMap: Record<string, string> | null = null;
       if (profilesRes.data) {
-        const profileMap: Record<string, string> = {};
+        profileMap = {};
         profilesRes.data.forEach(p => {
           if (p.display_name) {
-            profileMap[p.id] = p.display_name;
-            if (p.email) profileMap[p.email] = p.display_name;
+            profileMap![p.id] = p.display_name;
+            if (p.email) profileMap![p.email] = p.display_name;
           }
         });
         setProfiles(profileMap);
@@ -465,29 +562,60 @@ export default function App() {
       const activeBuckets = allBuckets.filter(b => !b.archived_at);
       const activeBucketIds = activeBuckets.map(b => b.id);
 
+      const totalsMap: Record<string, number> = {};
+      if (bucketTotalsRes.data) {
+        bucketTotalsRes.data.forEach((row: any) => {
+          totalsMap[row.bucket_id] = Number(row.total);
+        });
+      }
+
+      // Everything the home screen shows is here, so it goes on screen now
+      // rather than after the transactions below.
+      const allShares = [...acceptedShares, ...outgoingShares];
+      setShares(allShares);
+      setPendingShares(pending);
+      setBuckets(allBuckets);
+      if (catRes.data) setCategories(catRes.data);
+      setOrphanedCount(orphanedRes.count || 0);
+      // If the balances request alone failed, the last good balances stay
+      // (dimmed if they're the saved ones) rather than every balance turning
+      // into ₹0 - and the saved copy keeps them too.
+      if (bucketTotalsRes.data) {
+        setBucketTotals(totalsMap);
+        setBalancesAreSaved(false);
+        if (isInitial) markStartup('balances-fresh');
+      }
+      setDataVersion(v => v + 1);
+      setIsAppLoading(false);
+
+      try {
+        localStorage.setItem(SAVED.buckets, JSON.stringify(allBuckets));
+        if (bucketTotalsRes.data) localStorage.setItem(SAVED.totals, JSON.stringify(totalsMap));
+        localStorage.setItem(SAVED.shares, JSON.stringify(allShares));
+        localStorage.setItem(SAVED.pendingShares, JSON.stringify(pending));
+        localStorage.setItem(SAVED.orphanedCount, JSON.stringify(orphanedRes.count || 0));
+        if (catRes.data) localStorage.setItem(SAVED.categories, JSON.stringify(catRes.data));
+        if (profileMap) localStorage.setItem(SAVED.profiles, JSON.stringify(profileMap));
+        localStorage.setItem(SAVED.uid, session.user.id);
+        localStorage.setItem(SAVED.email, session.user.email);
+      } catch (e) {
+        console.warn('Failed to save cache', e);
+      }
+
+      // The transactions: the request already sent if it covered the same
+      // buckets, otherwise one for the buckets just loaded.
+      let transactionsRequest: ReturnType<typeof askForTransactions> | null = null;
+      if (windowScope) transactionsRequest = earlyTransactions;
+      else if (activeBucketIds.length > 0) {
+        transactionsRequest = earlyTransactions && sameIdSet(earlyIds, activeBucketIds)
+          ? earlyTransactions
+          : askForTransactions(activeBucketIds);
+      }
+
       let transactionsData: Transaction[] = [];
       let txFetchFailed = false;
-      // Sized to what's on screen, never to the last answer - that is what
-      // made each reload ask for 10-50 more rows than the one before.
-      const windowScope = urlBucketIdRef.current;
-      const windowLimit = windowScope
-        ? Math.min(MAX_TX_WINDOW, Math.max(TX_WINDOW, bucketRowsShownRef.current[windowScope] ?? 0))
-        : TX_WINDOW;
-      if (activeBucketIds.length > 0) {
-        let query = supabase
-          .from('transactions')
-          .select('*, category:categories(*)')
-          .is('deleted_at', null)
-          .order('date', { ascending: false })
-          .order('created_at', { ascending: false });
-
-        if (windowScope) {
-          query = query.eq('bucket_id', windowScope).limit(windowLimit);
-        } else {
-          query = query.in('bucket_id', activeBucketIds).limit(windowLimit);
-        }
-
-        const { data, error } = await query;
+      if (transactionsRequest) {
+        const { data, error } = await transactionsRequest;
         if (error) {
           // Don't let a failed fetch read as "no transactions" - that's the
           // worst way for a ledger to fail. Surface it and keep whatever's
@@ -498,21 +626,7 @@ export default function App() {
           transactionsData = data;
         }
       }
-
-      const totalsMap: Record<string, number> = {};
-      if (bucketTotalsRes.data) {
-        bucketTotalsRes.data.forEach((row: any) => {
-          totalsMap[row.bucket_id] = Number(row.total);
-        });
-      }
-
-      setShares([...acceptedShares, ...outgoingShares]);
-      setPendingShares(pending);
-      setBuckets(allBuckets);
-      if (catRes.data) setCategories(catRes.data);
-      setOrphanedCount(orphanedRes.count || 0);
-      setBucketTotals(totalsMap);
-      setDataVersion(v => v + 1);
+      if (isInitial) markStartup('transactions-done');
 
       if (!txFetchFailed) {
         txWindowRef.current = { scope: windowScope ?? 'all', limit: windowLimit, count: transactionsData.length };
@@ -521,14 +635,6 @@ export default function App() {
           if (dateDiff !== 0) return dateDiff;
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         }));
-      }
-
-      try {
-        localStorage.setItem('sw_buckets', JSON.stringify(allBuckets));
-        localStorage.setItem('sw_bucketTotals', JSON.stringify(totalsMap));
-        localStorage.setItem('sw_cache_uid', session.user.id);
-      } catch (e) {
-        console.warn('Failed to save cache', e);
       }
     } catch (err) {
       notifyError('Could not load your data. Check your connection and try again.', err);
@@ -550,7 +656,9 @@ export default function App() {
   }, [fetchData]);
 
   useEffect(() => {
-    if (session && !isRecovery) {
+    // Waits for the real login check (`loading`), not the saved account's
+    // stand-in: loading data and joining live updates need a confirmed login.
+    if (session && !isRecovery && !loading) {
       fetchData(true);
 
       const myEmail = session.user.email;
@@ -565,6 +673,7 @@ export default function App() {
         let joinedBefore = afterGap;
         return (status: string) => {
           if (status !== 'SUBSCRIBED') return;
+          markStartup('live-updates-connected');
           if (joinedBefore) debouncedFetchData();
           joinedBefore = true;
         };
@@ -692,10 +801,16 @@ export default function App() {
         window.removeEventListener('focus', handleVisibility);
         if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       };
-    } else {
-      setIsAppLoading(false);
     }
-  }, [session, isRecovery, fetchData, debouncedFetchData, pushToast]);
+  }, [session, isRecovery, loading, fetchData, debouncedFetchData, pushToast]);
+
+  // TEMPORARY timing readout: when the first screen appeared.
+  useEffect(() => {
+    if (!isAppLoading && session && !isRecovery) {
+      markStartup('screen-shown', balancesAreSaved ? 'saved balances, dimmed' : 'fresh balances');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAppLoading, session, isRecovery]);
 
   const optimisticAddTransaction = useCallback((newTx: Partial<Transaction>) => {
     const tempId = `opt-${Date.now()}`;
@@ -965,21 +1080,27 @@ const splitTimestamp = (ts: string | null | undefined) => {
     }
   }, [debouncedFetchData]);
 
-  if (loading || isAppLoading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 space-y-4">
-        <Loader2 className="w-8 h-8 animate-spin text-zinc-900" />
-        <div className="text-[10px] font-black uppercase text-zinc-400 tracking-widest animate-pulse">Loading SpendWise...</div>
-      </div>
-    );
-  }
+  // With a saved home screen (and its account), there's no waiting for the
+  // login check: the saved screen shows while it runs.
+  const loadingScreen = (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 space-y-4">
+      <Loader2 className="w-8 h-8 animate-spin text-zinc-900" />
+      <div className="text-[10px] font-black uppercase text-zinc-400 tracking-widest animate-pulse">Loading SpendWise...</div>
+    </div>
+  );
+
+  if (loading && !session) return loadingScreen;
 
   if (!session || isRecovery) {
     return <AuthView 
       initialIsRecovery={isRecovery}
-      onRecoveryComplete={() => setIsRecovery(false)} 
+      onRecoveryComplete={() => setIsRecovery(false)}
     />;
   }
+
+  // Signed in with nothing to show yet (no saved home screen): wait for the
+  // first load's buckets and balances.
+  if (isAppLoading) return loadingScreen;
 
   return (
     <div className="min-h-screen bg-zinc-50 pb-32">
@@ -987,7 +1108,13 @@ const splitTimestamp = (ts: string | null | undefined) => {
       <MemoizedSidebar
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
-        onLogout={() => supabase.auth.signOut()}
+        onLogout={async () => {
+          // Signing out on the server needs the network; without it, still
+          // sign out on this device rather than silently staying signed in.
+          const { error } = await supabase.auth.signOut();
+          if (error) await supabase.auth.signOut({ scope: 'local' });
+          window.location.replace('/');
+        }}
         onExport={handleExport}
         isExporting={isExporting}
       />
@@ -1046,6 +1173,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
               <MemoizedBucketsHomeView 
                 buckets={enhancedBuckets}
                 bucketTotals={bucketTotals}
+                balancesStale={balancesAreSaved}
                 orphanedCount={orphanedCount}
                 shares={shares}
                 pendingShares={pendingShares}
@@ -1075,6 +1203,7 @@ const splitTimestamp = (ts: string | null | undefined) => {
                     profiles={profiles}
                     isLoading={isDataLoading}
                     totalBalance={bucketTotals[bucket.id] || 0}
+                    balanceStale={balancesAreSaved}
                     windowComplete={windowHeldAll(bucket.id)}
                     onRowsShown={(count) => { bucketRowsShownRef.current[bucket.id] = count; }}
                     onOpenMenu={() => setIsSidebarOpen(true)}

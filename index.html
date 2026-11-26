@@ -8,6 +8,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>SpendWise - Personal Expense Tracker</title>
     <link rel="manifest" href="/manifest.json">
+    <!-- Start connecting to the database while the app code loads. -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin>
     <style>
       body {
         margin: 0;

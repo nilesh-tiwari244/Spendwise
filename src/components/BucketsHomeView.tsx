@@ -9,6 +9,9 @@ import { logActivity } from '../lib/activity';
 interface BucketsHomeViewProps {
   buckets: Bucket[];
   bucketTotals: Record<string, number>;
+  // The balances are the ones saved on this device last time; shown dimmed
+  // until fresh ones arrive.
+  balancesStale?: boolean;
   orphanedCount: number;
   shares: BucketShare[];
   pendingShares: BucketShare[];
@@ -27,6 +30,7 @@ interface BucketsHomeViewProps {
 export function BucketsHomeView({ 
   buckets,
   bucketTotals,
+  balancesStale = false,
   orphanedCount,
   shares, 
   pendingShares, 
@@ -369,7 +373,7 @@ export function BucketsHomeView({
                           </span>
                         )}
                       </div>
-                      <div className="text-lg font-black tracking-tight text-zinc-600">
+                      <div className={cn("text-lg font-black tracking-tight text-zinc-600 transition-opacity duration-300", balancesStale && "opacity-40")}>
                         {formatCurrency(bucketTotals[b.id] || 0)}
                       </div>
                     </div>

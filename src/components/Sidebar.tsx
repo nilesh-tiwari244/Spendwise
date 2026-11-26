@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'; //[cite: 9]
 import { X, Trash2, LogOut, Search, Download, Clock, Archive, UserCircle, Loader2, ChartColumn } from 'lucide-react'; //[cite: 14]
 import { cn } from '../lib/utils'; //[cite: 14]
 import { motion, AnimatePresence } from 'motion/react'; //[cite: 14]
+import { startupReport } from '../lib/startupTiming';
 
 // Which version is running, for the lines at the bottom of the menu: its code
 // (the commit) and when it was built, e.g. "Version 0ecd898" and
@@ -21,6 +22,30 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = false }: SidebarProps) {
+  // TEMPORARY: long-press the version line to see how long opening the app took.
+  const [timingReport, setTimingReport] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
+  const pressTimer = React.useRef<number | null>(null);
+  const startPress = () => {
+    pressTimer.current = window.setTimeout(() => {
+      setTimingReport(startupReport());
+      setCopied(false);
+    }, 700);
+  };
+  const endPress = () => {
+    if (pressTimer.current) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  };
+  const copyReport = async () => {
+    if (!timingReport) return;
+    try {
+      await navigator.clipboard.writeText(timingReport);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   // Map items to actual application URL paths[cite: 9]
   const menuItems = [
     { path: '/analyze', label: 'Search', icon: Search }, //[cite: 9, 14]
@@ -135,10 +160,32 @@ export function Sidebar({ isOpen, onClose, onLogout, onExport, isExporting = fal
               Logout {/*[cite: 14] */}
             </motion.button>
 
-            <p className="mt-3 text-center text-[10px] leading-4 font-bold text-zinc-500">
+            <p
+              className="mt-3 text-center text-[10px] leading-4 font-bold text-zinc-500 select-none"
+              style={{ WebkitTouchCallout: 'none' }}
+              onPointerDown={startPress}
+              onPointerUp={endPress}
+              onPointerLeave={endPress}
+              onPointerCancel={endPress}
+              onContextMenu={(e) => e.preventDefault()}
+            >
               <span className="block">Version {__APP_BUILD__.sha}</span>
               {UPDATED_LABEL && <span className="block">Updated {UPDATED_LABEL}</span>}
             </p>
+
+            {timingReport && (
+              <div className="mt-2 rounded-2xl bg-zinc-100 p-2">
+                <pre className="whitespace-pre-wrap break-words text-[9px] leading-[13px] font-mono text-zinc-800">{timingReport}</pre>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" onClick={copyReport} className="flex-1 py-2 rounded-full bg-zinc-900 text-white text-[10px] font-black uppercase">
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                  <button type="button" onClick={() => setTimingReport(null)} className="flex-1 py-2 rounded-full bg-white text-zinc-900 text-[10px] font-black uppercase">
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </motion.div>
         </>
       )}

@@ -56,6 +56,9 @@ interface DashboardViewProps {
   onSearchBucket: () => void;
   onOpenMenu?: () => void;
   totalBalance: number;
+  // The balance is the one saved on this device last time; shown dimmed until
+  // a fresh one arrives.
+  balanceStale?: boolean;
   // Whether App's latest refresh held every transaction in this bucket.
   windowComplete?: boolean;
   // Tells App how many rows this list shows, so its refresh covers them all.
@@ -75,6 +78,7 @@ export function DashboardView({
   onSearchBucket,
   onOpenMenu,
   totalBalance,
+  balanceStale = false,
   windowComplete = false,
   onRowsShown
 }: DashboardViewProps) {
@@ -277,11 +281,13 @@ export function DashboardView({
           )}
           style={{ backgroundColor: bucket.color || '#ffffff' }}
         >
-          {isNegativeBalance && (
-            <span className="text-[46px] leading-[54px] font-extrabold tracking-[-0.04em]">−</span>
-          )}
-          <span className="text-2xl leading-[38px] font-bold">₹</span>
-          <span className="text-[46px] leading-[54px] font-extrabold tracking-[-0.04em]">{balanceDigits}</span>
+          <span className={cn("flex items-start gap-0.5 transition-opacity duration-300", balanceStale && "opacity-40")}>
+            {isNegativeBalance && (
+              <span className="text-[46px] leading-[54px] font-extrabold tracking-[-0.04em]">−</span>
+            )}
+            <span className="text-2xl leading-[38px] font-bold">₹</span>
+            <span className="text-[46px] leading-[54px] font-extrabold tracking-[-0.04em]">{balanceDigits}</span>
+          </span>
         </section>
 
         <div className="flex justify-center gap-2 mt-3.5">
