@@ -229,36 +229,66 @@ export function TrackerView({ buckets, categories, userId, dataVersion, cameBack
   // ---- Totals ----
 
   type BucketTotals = Record<string, { debit: number; credit: number }>;
-  const [totals, setTotals] = useState<{ byGroup: Record<string, BucketTotals>; groupKeys: Set<string> } | null>(null);
+  type CategoryRef = { id: string; bucket_id: string };
+  const [totals, setTotals] = useState<{
+    byGroup: Record<string, BucketTotals>;
+    groupKeys: Set<string>;
+    // The categories each tracked name matched when these totals were read.
+    categoriesByGroup: Record<string, CategoryRef[]>;
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const latestFetchRef = useRef(0);
   const shownQueryRef = useRef<string | null>(null);
 
   const groupKeyList = groups.map(g => g.key).join('|');
   const categoryIdList = groups.flatMap(g => g.categories.map(c => c.id)).sort().join(',');
+  const coveredBucketList = buckets.map(b => b.id).sort().join(',');
 
   useEffect(() => {
     // Only dataVersion moved: the same totals are on screen, so refresh them
     // quietly. Anything else is a new question and shows the spinner.
-    const queryKey = [groupKeyList, applied.start, applied.end, categoryIdList].join('#');
+    const queryKey = [groupKeyList, applied.start, applied.end, categoryIdList, coveredBucketList].join('#');
     const quiet = shownQueryRef.current === queryKey;
     shownQueryRef.current = queryKey;
     const fetchId = ++latestFetchRef.current;
     const groupKeys = new Set(groups.map(g => g.key));
+    const coveredBucketIds = buckets.map(b => b.id);
 
-    const groupOfCategory = new Map<string, string>();
-    groups.forEach(g => g.categories.forEach(c => groupOfCategory.set(c.id, g.key)));
-    const categoryIds = Array.from(groupOfCategory.keys());
-    if (categoryIds.length === 0) {
-      setTotals({ byGroup: {}, groupKeys });
+    if (groupKeys.size === 0 || coveredBucketIds.length === 0) {
+      setTotals({ byGroup: {}, groupKeys, categoriesByGroup: {} });
       setIsLoading(false);
       return;
     }
-    const bucketIds = Array.from(new Set(groups.flatMap(g => g.categories.map(c => c.bucket_id))));
 
     if (!quiet) setIsLoading(true);
     (async () => {
       try {
+        // Which categories carry the tracked names is read fresh every time,
+        // not taken from the app's copy, so a category a bucket adds later
+        // (with the same name) counts straight away.
+        const { data: freshCategories, error: categoriesError } = await supabase
+          .from('categories')
+          .select('id, name, bucket_id')
+          .in('bucket_id', coveredBucketIds);
+        if (categoriesError) throw categoriesError;
+        if (fetchId !== latestFetchRef.current) return;
+
+        const groupOfCategory = new Map<string, string>();
+        const categoriesByGroup: Record<string, CategoryRef[]> = {};
+        for (const c of freshCategories ?? []) {
+          if (!c.name?.trim()) continue;
+          const key = normalizeCategoryName(c.name);
+          if (!groupKeys.has(key)) continue;
+          groupOfCategory.set(c.id, key);
+          (categoriesByGroup[key] ??= []).push({ id: c.id, bucket_id: c.bucket_id });
+        }
+        const categoryIds = Array.from(groupOfCategory.keys());
+        if (categoryIds.length === 0) {
+          setTotals({ byGroup: {}, groupKeys, categoriesByGroup });
+          return;
+        }
+        const bucketIds = Array.from(new Set(Object.values(categoriesByGroup).flat().map(c => c.bucket_id)));
+
         const rows = await fetchAllRows<{ id: string; bucket_id: string; category_id: string; type: 'Credit' | 'Debit'; amount: number }>(() => {
           let q = supabase
             .from('transactions')
@@ -283,7 +313,7 @@ export function TrackerView({ buckets, categories, userId, dataVersion, cameBack
           if (r.type === 'Credit') byGroup[key][r.bucket_id].credit += toPaise(r.amount);
           else byGroup[key][r.bucket_id].debit += toPaise(r.amount);
         }
-        setTotals({ byGroup, groupKeys });
+        setTotals({ byGroup, groupKeys, categoriesByGroup });
       } catch (err) {
         if (fetchId !== latestFetchRef.current) return;
         notifyError('Could not load the tracker. Check your connection and try again.', err);
@@ -292,19 +322,23 @@ export function TrackerView({ buckets, categories, userId, dataVersion, cameBack
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupKeyList, applied.start, applied.end, categoryIdList, dataVersion]);
+  }, [groupKeyList, applied.start, applied.end, categoryIdList, coveredBucketList, dataVersion]);
 
   const rows = useMemo(() => {
     const built = groups.map(g => {
       const perBucket = totals?.byGroup[g.key] ?? {};
-      const bucketIds = Array.from(new Set(g.categories.map(c => c.bucket_id)));
+      // The categories found with the totals; until those arrive, the app's copy.
+      const matched: CategoryRef[] = totals?.groupKeys.has(g.key)
+        ? (totals.categoriesByGroup[g.key] ?? []).filter(c => bucketById.has(c.bucket_id))
+        : g.categories;
+      const bucketIds = Array.from(new Set(matched.map(c => c.bucket_id)));
       const splits = bucketIds
         .map(bucketId => ({
           bucketId,
           bucketName: bucketById.get(bucketId)?.name ?? 'Bucket',
           // Search matches categories by name, so any one of this bucket's
           // ids for the name brings up all of them.
-          categoryId: g.categories.find(c => c.bucket_id === bucketId)!.id,
+          categoryId: matched.find(c => c.bucket_id === bucketId)!.id,
           debit: perBucket[bucketId]?.debit ?? 0,
           credit: perBucket[bucketId]?.credit ?? 0,
         }))
@@ -360,142 +394,8 @@ export function TrackerView({ buckets, categories, userId, dataVersion, cameBack
         </button>
       </div>
 
-      {/* Tracked categories - saved to the account until removed */}
-      <section aria-label="Tracked categories" className="mt-2 bg-white rounded-3xl shadow-sm p-4 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-black uppercase text-zinc-500">Tracked categories</span>
-          <SaveBadge status={status} />
-        </div>
-
-        {trackedNames.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {trackedNames.map(name => (
-              <span key={name} className="inline-flex items-center gap-1 pl-3 pr-1 py-1 rounded-full bg-zinc-900 text-white text-xs font-extrabold">
-                {name}
-                <button
-                  type="button"
-                  onClick={() => remove(name)}
-                  aria-label={`Stop tracking ${name}`}
-                  className="w-6 h-6 flex items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600 transition-colors"
-                >
-                  <X className="w-3 h-3" strokeWidth={2.6} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div ref={pickerRef}>
-          <div className="relative">
-            <Plus className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setIsPickerOpen(e.target.value.trim().length > 0);
-              }}
-              onKeyDown={handlePickerKey}
-              placeholder={trackedNames.length > 0 ? 'Add more categories...' : 'Add a category...'}
-              aria-label="Add a category to track"
-              className="w-full h-11 pl-9 pr-11 rounded-2xl bg-white shadow-sm border-2 border-transparent focus:border-zinc-900 outline-none text-base"
-            />
-            <button
-              type="button"
-              onClick={() => setIsPickerOpen(open => !open)}
-              aria-label={isPickerOpen ? 'Hide categories' : 'Show all categories'}
-              aria-expanded={isPickerOpen}
-              className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-full hover:bg-zinc-100 transition-colors"
-            >
-              <ChevronDown className={cn('w-4 h-4 transition-transform', isPickerOpen && 'rotate-180')} />
-            </button>
-          </div>
-
-          {isPickerOpen && (
-            <div className="mt-1 bg-white rounded-2xl shadow-lg max-h-64 overflow-y-auto">
-              {pickerOptions.length === 0 ? (
-                <div className="px-4 py-3 text-sm font-bold text-zinc-500">
-                  {nameOptions.length === trackedKeys.size ? 'Every category is already tracked' : 'No match'}
-                </div>
-              ) : (
-                pickerOptions.map(option => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => pick(option.name)}
-                    className="w-full min-h-11 flex items-center justify-between gap-2 px-4 py-2 text-left border-t border-zinc-100 first:border-t-0 hover:bg-zinc-50 transition-colors"
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-sm font-extrabold truncate">{option.name}</span>
-                      <span className="block text-[11px] font-bold text-zinc-500">{bucketsLabel(option.bucketCount)}</span>
-                    </span>
-                    <span className="flex-none text-[11px] font-black uppercase">+ Track</span>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
-        <p className="text-[11px] leading-4 text-zinc-500">
-          These stay here every time you open Tracker, until you remove them with ×.
-        </p>
-      </section>
-
-      {/* Period - opens on the current month */}
-      <section aria-label="Period" className="mt-4 bg-white rounded-3xl shadow-sm p-4 space-y-3.5">
-        <div className="flex gap-2">
-          {PRESETS.map(p => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => choosePreset(p.id)}
-              aria-pressed={preset === p.id}
-              className={cn(
-                'flex-1 py-2 rounded-full text-[11px] font-black uppercase transition-colors',
-                preset === p.id ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block min-w-0">
-            <span className="block text-[10px] font-black uppercase text-zinc-500 mb-1">Start Date</span>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setPreset(null); }}
-              className="w-full brutal-input text-sm p-2"
-            />
-          </label>
-          <label className="block min-w-0">
-            <span className="block text-[10px] font-black uppercase text-zinc-500 mb-1">End Date</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setPreset(null); }}
-              className="w-full brutal-input text-sm p-2"
-            />
-          </label>
-        </div>
-        <button
-          type="button"
-          onClick={applyDates}
-          disabled={isApplyDisabled}
-          className={cn(
-            'w-full brutal-button py-3 text-sm font-black uppercase flex items-center justify-center gap-2 transition-colors',
-            isApplyDisabled && 'opacity-40 cursor-not-allowed'
-          )}
-        >
-          <Filter className="w-4 h-4" />
-          Apply Filter
-        </button>
-      </section>
-
       {/* Totals across every covered bucket */}
-      <div className="mt-5 px-1 flex justify-between items-baseline gap-2">
+      <div className="mt-2 px-1 flex justify-between items-baseline gap-2">
         <h3 className="text-xs font-black uppercase tracking-widest text-zinc-600">All your buckets</h3>
         <span className="text-[11px] font-extrabold text-zinc-600">{periodLabel(applied)}</span>
       </div>
@@ -511,7 +411,7 @@ export function TrackerView({ buckets, categories, userId, dataVersion, cameBack
 
         {trackedNames.length === 0 ? (
           <p className="p-6 text-center text-sm font-bold text-zinc-500">
-            Add a category above to see its total across all your buckets.
+            Add a category below to see its total across all your buckets.
           </p>
         ) : (
           <>
@@ -594,6 +494,140 @@ export function TrackerView({ buckets, categories, userId, dataVersion, cameBack
           Tap a category to see each bucket's debit and credit; tap a bucket to open those transactions in Search.
         </p>
       )}
+
+      {/* Period - opens on the current month */}
+      <section aria-label="Period" className="mt-4 bg-white rounded-3xl shadow-sm p-4 space-y-3.5">
+        <div className="flex gap-2">
+          {PRESETS.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => choosePreset(p.id)}
+              aria-pressed={preset === p.id}
+              className={cn(
+                'flex-1 py-2 rounded-full text-[11px] font-black uppercase transition-colors',
+                preset === p.id ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block min-w-0">
+            <span className="block text-[10px] font-black uppercase text-zinc-500 mb-1">Start Date</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setPreset(null); }}
+              className="w-full brutal-input text-sm p-2"
+            />
+          </label>
+          <label className="block min-w-0">
+            <span className="block text-[10px] font-black uppercase text-zinc-500 mb-1">End Date</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => { setEndDate(e.target.value); setPreset(null); }}
+              className="w-full brutal-input text-sm p-2"
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          onClick={applyDates}
+          disabled={isApplyDisabled}
+          className={cn(
+            'w-full brutal-button py-3 text-sm font-black uppercase flex items-center justify-center gap-2 transition-colors',
+            isApplyDisabled && 'opacity-40 cursor-not-allowed'
+          )}
+        >
+          <Filter className="w-4 h-4" />
+          Apply Filter
+        </button>
+      </section>
+
+      {/* Tracked categories - saved to the account until removed */}
+      <section aria-label="Tracked categories" className="mt-4 bg-white rounded-3xl shadow-sm p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-black uppercase text-zinc-500">Tracked categories</span>
+          <SaveBadge status={status} />
+        </div>
+
+        {trackedNames.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {trackedNames.map(name => (
+              <span key={name} className="inline-flex items-center gap-1 pl-3 pr-1 py-1 rounded-full bg-zinc-900 text-white text-xs font-extrabold">
+                {name}
+                <button
+                  type="button"
+                  onClick={() => remove(name)}
+                  aria-label={`Stop tracking ${name}`}
+                  className="w-6 h-6 flex items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600 transition-colors"
+                >
+                  <X className="w-3 h-3" strokeWidth={2.6} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div ref={pickerRef}>
+          <div className="relative">
+            <Plus className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setIsPickerOpen(e.target.value.trim().length > 0);
+              }}
+              onKeyDown={handlePickerKey}
+              placeholder={trackedNames.length > 0 ? 'Add more categories...' : 'Add a category...'}
+              aria-label="Add a category to track"
+              className="w-full h-11 pl-9 pr-11 rounded-2xl bg-white shadow-sm border-2 border-transparent focus:border-zinc-900 outline-none text-base"
+            />
+            <button
+              type="button"
+              onClick={() => setIsPickerOpen(open => !open)}
+              aria-label={isPickerOpen ? 'Hide categories' : 'Show all categories'}
+              aria-expanded={isPickerOpen}
+              className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-full hover:bg-zinc-100 transition-colors"
+            >
+              <ChevronDown className={cn('w-4 h-4 transition-transform', isPickerOpen && 'rotate-180')} />
+            </button>
+          </div>
+
+          {isPickerOpen && (
+            <div className="mt-1 bg-white rounded-2xl shadow-lg max-h-64 overflow-y-auto">
+              {pickerOptions.length === 0 ? (
+                <div className="px-4 py-3 text-sm font-bold text-zinc-500">
+                  {nameOptions.length === trackedKeys.size ? 'Every category is already tracked' : 'No match'}
+                </div>
+              ) : (
+                pickerOptions.map(option => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => pick(option.name)}
+                    className="w-full min-h-11 flex items-center justify-between gap-2 px-4 py-2 text-left border-t border-zinc-100 first:border-t-0 hover:bg-zinc-50 transition-colors"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-extrabold truncate">{option.name}</span>
+                      <span className="block text-[11px] font-bold text-zinc-500">{bucketsLabel(option.bucketCount)}</span>
+                    </span>
+                    <span className="flex-none text-[11px] font-black uppercase">+ Track</span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        <p className="text-[11px] leading-4 text-zinc-500">
+          These stay here every time you open Tracker, until you remove them with ×.
+        </p>
+      </section>
     </div>
   );
 }
